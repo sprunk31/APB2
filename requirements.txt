@@ -8,4 +8,3 @@ streamlit-folium
 geopy
 streamlit-autorefresh
 openpyxl
-socket
