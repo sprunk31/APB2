@@ -43,7 +43,7 @@ def get_engine():
     # bouw de URL met sslmode
     db_url = (
         f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
-        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}?sslmode=require"
+        f"@{cfg['host']}:{cfg['port']}/{cfg['database']}?sslmode=require"
     )
 
     # forceer verbinding via het IPv4-adres
