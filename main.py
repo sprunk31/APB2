@@ -34,12 +34,18 @@ if not st.session_state.authenticated:
 @st.cache_resource
 def get_engine():
     cfg = st.secrets["postgres"]
+    ipv4 = "123.45.67.89"  # vervang door het echte IPv4-adres van jouw host
     db_url = (
         f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
-        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}"
+        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}?sslmode=require"
     )
-    # forceer SSL
-    return create_engine(db_url, connect_args={"sslmode": "require"})
+    return create_engine(
+        db_url,
+        connect_args={
+            "sslmode": "require",
+            "hostaddr": ipv4
+        }
+    )
 
 def run_query(query, params=None):
     with get_engine().connect() as conn:
