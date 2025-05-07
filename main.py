@@ -14,11 +14,13 @@ from streamlit_autorefresh import st_autorefresh
 @st.cache_resource
 def get_engine():
     cfg = st.secrets["postgres"]
+    # Let op de ?sslmode=require onderaan
     db_url = (
         f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
-        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}"
+        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}?sslmode=require"
     )
     return create_engine(db_url)
+
 
 def run_query(query, params=None):
     with get_engine().connect() as conn:
