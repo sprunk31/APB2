@@ -10,17 +10,6 @@ from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from streamlit_autorefresh import st_autorefresh
 
-
-@st.cache_resource
-def get_engine():
-    cfg = st.secrets["postgres"]
-    db_url = (
-        f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
-        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}"
-    )
-    # forceer SSL
-    return create_engine(db_url, connect_args={"sslmode": "require"})
-
 # ─── BASIC LOGIN ────────────────────────────────────────────────────────────────
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -42,7 +31,15 @@ if not st.session_state.authenticated:
     st.stop()
 # ────────────────────────────────────────────────────────────────────────────────
 
-
+@st.cache_resource
+def get_engine():
+    cfg = st.secrets["postgres"]
+    db_url = (
+        f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
+        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}"
+    )
+    # forceer SSL
+    return create_engine(db_url, connect_args={"sslmode": "require"})
 
 def run_query(query, params=None):
     with get_engine().connect() as conn:
