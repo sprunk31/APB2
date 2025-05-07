@@ -14,12 +14,34 @@ from streamlit_autorefresh import st_autorefresh
 @st.cache_resource
 def get_engine():
     cfg = st.secrets["postgres"]
-    # Let op de ?sslmode=require onderaan
     db_url = (
         f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
-        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}?sslmode=require"
+        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}"
     )
-    return create_engine(db_url)
+    # forceer SSL
+    return create_engine(db_url, connect_args={"sslmode": "require"})
+
+# ─── BASIC LOGIN ────────────────────────────────────────────────────────────────
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+def do_login():
+    st.markdown("## 🔐 Log in om toegang te krijgen")
+    username = st.text_input("Gebruikersnaam", key="login_user")
+    password = st.text_input("Wachtwoord", type="password", key="login_pass")
+    if st.button("Inloggen"):
+        creds = st.secrets["credentials"]
+        if username == creds["username"] and password == creds["password"]:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("❌ Ongeldige gebruikersnaam of wachtwoord")
+
+if not st.session_state.authenticated:
+    do_login()
+    st.stop()
+# ────────────────────────────────────────────────────────────────────────────────
+
 
 
 def run_query(query, params=None):
