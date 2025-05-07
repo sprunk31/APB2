@@ -36,7 +36,8 @@ def get_engine():
     cfg = st.secrets["postgres"]
     # sslmode=require in de URL
     db_url = (
-        f"postgresql://{cfg['user']}:{cfg['password']}@{cfg['host']}:{cfg['port']}/{cfg['database']}?sslmode=require"
+        f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
+        f"@{cfg['host']}:{cfg['port']}/{cfg['database']}?sslmode=require"
     )
     return create_engine(db_url)
 
