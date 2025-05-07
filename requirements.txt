@@ -1,0 +1,9 @@
+streamlit
+pandas
+sqlalchemy
+psycopg2-binary
+streamlit-aggrid
+folium
+streamlit-folium
+geopy
+streamlit-autorefresh
