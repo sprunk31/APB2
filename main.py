@@ -5,10 +5,12 @@ from sqlalchemy import create_engine, text
 from datetime import datetime
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 import folium
+import socket
 from folium.plugins import HeatMap
 from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from streamlit_autorefresh import st_autorefresh
+
 
 # ─── BASIC LOGIN ────────────────────────────────────────────────────────────────
 if "authenticated" not in st.session_state:
@@ -34,12 +36,24 @@ if not st.session_state.authenticated:
 @st.cache_resource
 def get_engine():
     cfg = st.secrets["postgres"]
-    # sslmode=require in de URL
+    # dynamisch het IPv4-adres van je host ophalen
+    infos = socket.getaddrinfo(cfg["host"], None)
+    ipv4 = next((info[4][0] for info in infos if info[0] == socket.AF_INET), cfg["host"])
+
+    # bouw de URL met sslmode
     db_url = (
         f"postgresql+psycopg2://{cfg['user']}:{cfg['password']}"
-        f"@{cfg['host']}:{cfg['port']}/{cfg['database']}?sslmode=require"
+        f"@{cfg['host']}:{cfg['port']}/{cfg['dbname']}?sslmode=require"
     )
-    return create_engine(db_url)
+
+    # forceer verbinding via het IPv4-adres
+    return create_engine(
+        db_url,
+        connect_args={
+            "sslmode": "require",
+            "hostaddr": ipv4
+        }
+    )
 
 
 def run_query(query, params=None):
