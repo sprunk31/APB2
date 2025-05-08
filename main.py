@@ -334,12 +334,12 @@ with tab2:
     "ScatterplotLayer",
     data=df_r,
     get_position='[r_lon, r_lat]',
-    get_fill_color=kleur_map[route],
-    radiusMinPixels=4,
+    get_fill_color='[255, 255, 255, 0]',   # volledig transparante binnenkant
+    get_line_color=kleur_map[route],       # opvallende randkleur
+    line_width_min_pixels=2,               # dikte van de rand
+    radiusMinPixels=5,
     radiusMaxPixels=6,
-    pickable=True,
-    get_line_color=[0, 0, 220],
-    line_width_min_pixels=0
+    pickable=True
 ))
 
     if not df_hand.empty:
