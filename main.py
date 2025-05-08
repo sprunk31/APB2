@@ -343,6 +343,7 @@ with tab1:
 
     df = df[df["content_type"] == st.session_state.selected_type]
     df = df[df["oproute"] == ("Ja" if st.session_state.op_route else "Nee")]
+    df = df.sort_values(by="gemiddeldevulgraad", ascending=False)
 
     zichtbaar = [
         "container_name", "address", "city", "location_code", "content_type",
