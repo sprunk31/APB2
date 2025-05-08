@@ -133,9 +133,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
-
-
-
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
         file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
@@ -196,7 +193,7 @@ with st.sidebar:
                         combinatietelling = EXCLUDED.combinatietelling,
                         gemiddeldevulgraad = EXCLUDED.gemiddeldevulgraad,
                         oproute = EXCLUDED.oproute,
-                        extra_meegegeven = EXCLUDED.extra_meegegeve
+                        extra_meegegeven = EXCLUDED.extra_meegegeven
                 """
                 with engine.begin() as conn:
                     for chunk in chunked(df1.to_dict(orient="records"), 500):
