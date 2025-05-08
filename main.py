@@ -330,17 +330,17 @@ with tab2:
                 Locatie: {row['address']}, {row['city']}
             """, axis=1
         )
-        layers.append(pdk.Layer(
+        pdk.Layer(
             "ScatterplotLayer",
             data=df_r,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
-            radiusmaxpixl=50,
-            radiusminpixl=50,# groter zoals in Folium
+            radiusMinPixels=6,
+            radiusMaxPixels=6,
             pickable=True,
             get_line_color=[0, 0, 0],
             line_width_min_pixels=0
-        ))
+        )
 
     if not df_hand.empty:
         df_hand["tooltip_label"] = df_hand.apply(
@@ -352,15 +352,15 @@ with tab2:
                 Locatie: {row['address']}, {row['city']}
             """, axis=1
         )
-        layers.append(pdk.Layer(
+        pdk.Layer(
             "ScatterplotLayer",
             data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
-            get_fill_color='[0, 0, 0, 220]',  # zwart
-            radiusmaxpixl=100,
-            radiusminpixl=100,
+            get_fill_color='[0, 0, 0, 220]',
+            radiusMinPixels=10,
+            radiusMaxPixels=10,
             pickable=True
-        ))
+        )
 
     # ───── Tooltip ──────────────────────────────────
     tooltip = {
