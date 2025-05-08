@@ -338,7 +338,7 @@ with tab2:
             get_radius=50,  # groter zoals in Folium
             pickable=True,
             get_line_color=[0, 0, 0],
-            line_width_min_pixels=1
+            line_width_min_pixels=0
         ))
 
     if not df_hand.empty:
@@ -356,7 +356,7 @@ with tab2:
             data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
             get_fill_color='[0, 0, 0, 220]',  # zwart
-            get_radius=200,
+            get_radius=100,
             pickable=True
         ))
 
