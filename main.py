@@ -252,10 +252,10 @@ with tab1:
 
 
 # ─── TAB 2: KAART ─────────────────────────────────
+# ─── TAB 2: KAART ─────────────────────────────────
 with tab2:
     st.subheader("🗺️ Containerkaart")
 
-    # ───── Data laden ───────────────────────────────
     @st.cache_data(ttl=300)
     def load_routes_for_map():
         df = run_query("""
@@ -267,7 +267,6 @@ with tab2:
         """)
         df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
         return df
-
 
     @st.cache_data(ttl=300)
     def load_all_containers():
@@ -284,10 +283,9 @@ with tab2:
     geselecteerde_routes = st.session_state.get("geselecteerde_routes", [])
     geselecteerde_namen = st.session_state.get("extra_meegegeven_tijdelijk", [])
 
-    # ───── Handmatig geselecteerd ───────────────────
     df_hand = df_containers[df_containers["container_name"].isin(geselecteerde_namen)].copy()
 
-    # ───── Dichtstbijzijnde route ───────────────────
+    # ─── Dichtstbijzijnde route bepalen ─────────────────────
     def find_nearest_route(r):
         if pd.isna(r["lat"]) or pd.isna(r["lon"]): return None
         radius = 0.15
@@ -309,14 +307,17 @@ with tab2:
     else:
         df_hand["dichtstbijzijnde_route"] = None
 
-    # ───── Kleur per route ──────────────────────────
-    kleuren = [
-        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
-        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+    # ─── Kleurconfiguratie ───────────────────────────────────
+    kleuren_rgb = [
+        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0],
+        [160, 32, 240], [0, 206, 209], [255, 105, 180],
+        [255, 255, 0], [139, 69, 19], [0, 128, 128]
     ]
-    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(geselecteerde_routes)}
+    kleur_map = {
+        route: kleuren_rgb[i % len(kleuren_rgb)] for i, route in enumerate(geselecteerde_routes)
+    }
 
-    # ───── Layers ───────────────────────────────────
+    # ─── Layers bouwen ───────────────────────────────────────
     layers = []
 
     for route in geselecteerde_routes:
@@ -331,16 +332,16 @@ with tab2:
             """, axis=1
         )
         layers.append(pdk.Layer(
-    "ScatterplotLayer",
-    data=df_r,
-    get_position='[r_lon, r_lat]',
-    get_fill_color='[255, 255, 255, 0]',   # volledig transparante binnenkant
-    get_line_color=kleur_map[route],       # opvallende randkleur
-    line_width_min_pixels=2,               # dikte van de rand
-    radiusMinPixels=5,
-    radiusMaxPixels=6,
-    pickable=True
-))
+            "ScatterplotLayer",
+            data=df_r,
+            get_position='[r_lon, r_lat]',
+            get_fill_color='[255, 255, 255, 0]',  # volledig transparant
+            get_line_color=kleur_map[route],     # opvallende randkleur
+            line_width_min_pixels=2,
+            radiusMinPixels=6,
+            radiusMaxPixels=6,
+            pickable=True
+        ))
 
     if not df_hand.empty:
         df_hand["tooltip_label"] = df_hand.apply(
@@ -353,25 +354,23 @@ with tab2:
             """, axis=1
         )
         layers.append(pdk.Layer(
-    "ScatterplotLayer",
-    data=df_hand.dropna(subset=["lat", "lon"]),
-    get_position='[lon, lat]',
-    get_fill_color='[0, 0, 0, 220]',
-    radiusMinPixels=5,
-    radiusMaxPixels=10,
-    pickable=True
-))
+            "ScatterplotLayer",
+            data=df_hand.dropna(subset=["lat", "lon"]),
+            get_position='[lon, lat]',
+            get_fill_color='[0, 0, 0, 220]',
+            get_line_color=[255, 255, 255],
+            line_width_min_pixels=1,
+            radiusMinPixels=8,
+            pickable=True
+        ))
 
-    # ───── Tooltip ──────────────────────────────────
+    # ─── Tooltip configuratie ────────────────────────────────
     tooltip = {
         "html": "{tooltip_label}",
-        "style": {
-            "backgroundColor": "steelblue",
-            "color": "white"
-        }
+        "style": {"backgroundColor": "steelblue", "color": "white"}
     }
 
-    # ───── View ─────────────────────────────────────
+    # ─── View ────────────────────────────────────────────────
     if not df_containers.empty:
         midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
     else:
@@ -389,7 +388,7 @@ with tab2:
         tooltip=tooltip
     ))
 
-    # ───── Extra info ───────────────────────────────
+    # ─── Tabel weergave ──────────────────────────────────────
     if not df_hand.empty:
         st.markdown("### 📋 Handmatig geselecteerde containers")
         st.dataframe(df_hand[[
@@ -397,6 +396,7 @@ with tab2:
         ]], use_container_width=True)
     else:
         st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
+
 
 
 
