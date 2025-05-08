@@ -330,14 +330,14 @@ with tab2:
                 Locatie: {row['address']}, {row['city']}
             """, axis=1
         )
-        pdk.Layer(
+        layers.append(pdk.Layer(
             "ScatterplotLayer",
             data=df_r,
             get_position='[r_lon, r_lat]',
             get_fill_color=[255, 0, 0, 160],  # vaste kleur, semi-transparant
             radiusMinPixels=6,
             pickable=True
-        )
+        ))
 
     if not df_hand.empty:
         df_hand["tooltip_label"] = df_hand.apply(
