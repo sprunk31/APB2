@@ -338,7 +338,7 @@ with tab2:
     radiusMinPixels=4,
     radiusMaxPixels=6,
     pickable=True,
-    get_line_color=[0, 0, 0, 220],
+    get_line_color=[0, 0, 220],
     line_width_min_pixels=0
 ))
 
