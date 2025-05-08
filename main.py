@@ -335,7 +335,8 @@ with tab2:
             data=df_r,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
-            get_radius=50,  # groter zoals in Folium
+            radiusmaxpixl=50,
+            radiusminpixl=50,# groter zoals in Folium
             pickable=True,
             get_line_color=[0, 0, 0],
             line_width_min_pixels=0
@@ -356,7 +357,8 @@ with tab2:
             data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
             get_fill_color='[0, 0, 0, 220]',  # zwart
-            get_radius=100,
+            radiusmaxpixl=100,
+            radiusminpixl=100,
             pickable=True
         ))
 
