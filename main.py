@@ -314,7 +314,7 @@ with tab2:
         [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
         [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
     ]
-    kleur_map = {route: kleuren[i % len(kleuren)] + [50] for i, route in enumerate(geselecteerde_routes)}
+    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(geselecteerde_routes)}
 
     # ───── Layers ───────────────────────────────────
     layers = []
@@ -335,8 +335,8 @@ with tab2:
     data=df_r,
     get_position='[r_lon, r_lat]',
     get_fill_color=kleur_map[route],
-    radiusMinPixels=6,
-    radiusMaxPixels=5,
+    radiusMinPixels=3,
+    radiusMaxPixels=6,
     pickable=True,
     get_line_color=[0, 0, 0],
     line_width_min_pixels=0
