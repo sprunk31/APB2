@@ -314,7 +314,7 @@ with tab2:
         [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
         [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
     ]
-    kleur_map = {route: kleuren[i % len(kleuren)] + [100] for i, route in enumerate(geselecteerde_routes)}
+    kleur_map = {route: kleuren[i % len(kleuren)] + [80] for i, route in enumerate(geselecteerde_routes)}
 
     # ───── Layers ───────────────────────────────────
     layers = []
