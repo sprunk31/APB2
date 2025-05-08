@@ -268,6 +268,7 @@ with tab2:
         df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
         return df
 
+
     @st.cache_data(ttl=300)
     def load_all_containers():
         df = run_query("""
