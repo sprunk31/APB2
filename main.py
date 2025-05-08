@@ -355,7 +355,7 @@ with tab1:
 
     # Filter op vulgraad-criteria
     bewerkbaar = bewerkbaar[
-        (bewerkbaar["gemiddeldevulgraad"] > 60) |
+        (bewerkbaar["gemiddeldevulgraad"] > 65) |
         (bewerkbaar["fill_level"] > 80)
         ]
 
