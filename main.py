@@ -249,6 +249,7 @@ with tab1:
     reeds = df[df["extra_meegegeven"] == True]
     st.dataframe(reeds[zichtbaar], use_container_width=True)
 
+
 # ─── TAB 2: KAART ─────────────────────────────────
 with tab2:
     st.subheader("🗺️ Containerkaart")
@@ -269,7 +270,6 @@ with tab2:
             JOIN apb_containers c ON r.omschrijving = c.container_name
             WHERE c.container_location IS NOT NULL
         """)
-
         def _parse(loc):
             try:
                 return tuple(map(float, loc.split(",")))
@@ -281,12 +281,12 @@ with tab2:
         )
         return df_routes_full
 
-    df_routes = st.session_state.get("routes_cache")
-    if df_routes is None or st.session_state.refresh_needed:
-        df_routes = load_routes_cache()
-        st.session_state.routes_cache = df_routes
-        st.session_state.refresh_needed = False  # ← voeg deze regel toe
+    # Cache routes als deze nog niet in session state staan of als een refresh is aangevraagd
+    if "routes_cache" not in st.session_state or st.session_state.refresh_needed:
+        st.session_state["routes_cache"] = load_routes_cache()
+        st.session_state.refresh_needed = False  # Reset na verversing
 
+    df_routes = st.session_state["routes_cache"]
     df_containers = load_container_map_data()
 
     geselecteerde_routes = st.session_state.get("geselecteerde_routes", [])
@@ -319,13 +319,20 @@ with tab2:
 
         df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
     else:
-        df_hand = pd.DataFrame(columns=["container_name", "lat", "lon", "address", "city", "content_type", "fill_level", "dichtstbijzijnde_route"])
+        df_hand = pd.DataFrame(columns=[
+            "container_name", "lat", "lon", "address", "city",
+            "content_type", "fill_level", "dichtstbijzijnde_route"
+        ])
 
-    @st.cache_resource
+    # Geen caching op build_map!
     def build_map(routes_df, hand_df, selected_routes):
         m = folium.Map(location=[52.0, 4.3], zoom_start=11)
-        kleuren = itertools.cycle(["red", "blue", "green", "purple", "orange", "darkred", "lightblue", "darkgreen", "cadetblue", "pink"])
+        kleuren = itertools.cycle([
+            "red", "blue", "green", "purple", "orange",
+            "darkred", "lightblue", "darkgreen", "cadetblue", "pink"
+        ])
         kleur_map = {r: k for r, k in zip(selected_routes, kleuren)}
+
         for _, row in routes_df[routes_df["route_omschrijving"].isin(selected_routes)].iterrows():
             folium.CircleMarker(
                 location=(row["r_lat"], row["r_lon"]),
@@ -336,29 +343,36 @@ with tab2:
                 fill_opacity=0.8,
                 tooltip=f"🚚 {row['route_omschrijving']}\n🧺 {row['content_type']}",
             ).add_to(m)
+
         for _, row in hand_df.dropna(subset=["lat", "lon"]).iterrows():
             folium.Marker(
                 location=(row["lat"], row["lon"]),
-                popup=(
-                    f"🖤 {row['container_name']}<br>"
-                    f"Adres: {row['address']}, {row['city']}<br>"
-                    f"Type: {row['content_type']}<br>"
-                    f"Route: {row['dichtstbijzijnde_route'] or '—'}"
-                ),
+                popup=(f"🖤 {row['container_name']}<br>"
+                       f"Adres: {row['address']}, {row['city']}<br>"
+                       f"Type: {row['content_type']}<br>"
+                       f"Route: {row['dichtstbijzijnde_route'] or '—'}"),
                 icon=folium.Icon(color="black", icon="plus")
             ).add_to(m)
         return m
 
     m = build_map(df_routes, df_hand, tuple(geselecteerde_routes))
+
     col_kaart, col_rechts = st.columns([1, 1])
     with col_kaart:
         st_folium(m, width=1000, height=600)
     with col_rechts:
         if not df_hand.empty:
             st.markdown("### 📋 Handmatig geselecteerde containers")
-            st.dataframe(df_hand[["container_name", "address", "city", "content_type", "fill_level", "dichtstbijzijnde_route"]], use_container_width=True)
+            st.dataframe(
+                df_hand[[
+                    "container_name", "address", "city", "content_type",
+                    "fill_level", "dichtstbijzijnde_route"
+                ]],
+                use_container_width=True
+            )
         else:
             st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
+
 
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
