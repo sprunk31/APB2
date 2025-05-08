@@ -335,7 +335,7 @@ with tab2:
     data=df_r,
     get_position='[r_lon, r_lat]',
     get_fill_color=kleur_map[route],
-    radiusMinPixels=6,
+    radiusMinPixels=3,
     radiusMaxPixels=6,
     pickable=True,
     get_line_color=[0, 0, 0],
@@ -357,7 +357,7 @@ with tab2:
     data=df_hand.dropna(subset=["lat", "lon"]),
     get_position='[lon, lat]',
     get_fill_color='[0, 0, 0, 220]',
-    radiusMinPixels=10,
+    radiusMinPixels=5,
     radiusMaxPixels=10,
     pickable=True
 ))
