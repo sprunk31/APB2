@@ -305,10 +305,22 @@ with st.sidebar:
                     lambda loc: pd.Series(_parse(loc)))
 
                 st.session_state["routes_cache"] = df_routes_full
-
                 # ✅ 7. Afronden
-
                 st.success("✅ Gegevens succesvol geüpload en bijgewerkt.")
+
+                # 🧮 Tel aantal containers met fill_level ≥ 80
+                aantal_volle_bakken = (df1["fill_level"] >= 80).sum()
+                vandaag = datetime.now().date()
+
+                # 📝 Log dit naar logboek_totaal (met UPSERT)
+                with engine.begin() as conn:
+                    conn.execute(text("""
+                        INSERT INTO apb_logboek_totaal (datum, aantal_volle_bakken)
+                        VALUES (:datum, :aantal)
+                        ON CONFLICT (datum)
+                        DO UPDATE SET aantal_volle_bakken = EXCLUDED.aantal_volle_bakken
+                    """), {"datum": vandaag, "aantal": int(aantal_volle_bakken)})
+
 
             except Exception as e:
 
