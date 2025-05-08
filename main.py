@@ -310,25 +310,17 @@ with tab2:
         df_hand["dichtstbijzijnde_route"] = None
 
     # ───── Kleur per route ──────────────────────────
-    kleurenlijst = [
-        [255, 0, 0],  # rood
-        [0, 128, 0],  # groen
-        [0, 0, 255],  # blauw
-        [255, 165, 0],  # oranje
-        [128, 0, 128],  # paars
-        [0, 255, 255],  # cyaan
-        [255, 20, 147],  # roze
-        [139, 69, 19],  # bruin
-        [0, 0, 0],  # zwart
-        [255, 255, 0],  # geel
+    kleuren = [
+        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
+        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
     ]
-
+    kleur_map = {route: kleuren[i % len(kleuren)] for i, route in enumerate(geselecteerde_routes)}
 
     # ───── Layers ───────────────────────────────────
     layers = []
 
-    for idx, route in enumerate(geselecteerde_routes):
-        df_r = df_routes[df_routes["route_omschrijving"] == route]
+    for route in geselecteerde_routes:
+        df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
         df_r["tooltip_label"] = df_r.apply(
             lambda row: f"""
                 <b>🧺 {row['container_name']}</b><br>
@@ -338,15 +330,15 @@ with tab2:
                 Locatie: {row['address']}, {row['city']}
             """, axis=1
         )
-        kleur = kleurenlijst[idx % len(kleurenlijst)]
         layers.append(pdk.Layer(
             "ScatterplotLayer",
             data=df_r,
-            get_position='[lon, lat]',
-            get_fill_color=kleur,
-            get_radius=80,
+            get_position='[r_lon, r_lat]',
+            get_fill_color=kleur_map[route],
+            get_radius=150,  # groter zoals in Folium
             pickable=True,
-            get_tooltip='tooltip_label'
+            get_line_color=[0, 0, 0],
+            line_width_min_pixels=1
         ))
 
     if not df_hand.empty:
@@ -361,12 +353,11 @@ with tab2:
         )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
-            data=df_hand,
+            data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
-            get_fill_color='[0, 0, 0]',  # zwart
-            get_radius=120,
-            pickable=True,
-            get_tooltip='tooltip_label'
+            get_fill_color='[0, 0, 0, 220]',  # zwart
+            get_radius=200,
+            pickable=True
         ))
 
     # ───── Tooltip ──────────────────────────────────
@@ -385,7 +376,7 @@ with tab2:
         midpoint = [52.0, 4.3]
 
     st.pydeck_chart(pdk.Deck(
-        map_style="mapbox://styles/mapbox/streets-v11",
+        map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=pdk.ViewState(
             latitude=midpoint[0],
             longitude=midpoint[1],
