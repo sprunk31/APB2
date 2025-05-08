@@ -250,128 +250,107 @@ with tab1:
     st.dataframe(reeds[zichtbaar], use_container_width=True)
 
 
-# ─── TAB 2: KAART ─────────────────────────────────
 with tab2:
-    st.subheader("🗺️ Containerkaart")
+    st.subheader("🗺️ Containerkaart (pydeck)")
 
+    # 🧭 Laad route- en containerdata (gecached)
     @st.cache_data(ttl=300)
-    def load_container_map_data():
+    def load_routes_for_map():
         return run_query("""
-            SELECT container_name, container_location, content_type, fill_level, address, city
-            FROM apb_containers
-        """)
-
-    @st.cache_data(ttl=300)
-    def load_routes_cache():
-        df_routes_full = run_query("""
             SELECT r.route_omschrijving, r.omschrijving AS container_name,
                    c.container_location, c.content_type
             FROM apb_routes r
             JOIN apb_containers c ON r.omschrijving = c.container_name
             WHERE c.container_location IS NOT NULL
         """)
-        def _parse(loc):
-            try:
-                return tuple(map(float, loc.split(",")))
-            except:
-                return (None, None)
 
-        df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-            lambda loc: pd.Series(_parse(loc))
-        )
-        return df_routes_full
+    @st.cache_data(ttl=300)
+    def load_all_containers():
+        return run_query("""
+            SELECT container_name, container_location, content_type, fill_level, address, city
+            FROM apb_containers
+        """)
 
-    # Cache routes als deze nog niet in session state staan of als een refresh is aangevraagd
-    if "routes_cache" not in st.session_state or st.session_state.refresh_needed:
-        st.session_state["routes_cache"] = load_routes_cache()
-        st.session_state.refresh_needed = False  # Reset na verversing
+    def parse_location_to_latlon(df, col="container_location"):
+        df[["lat", "lon"]] = df[col].str.split(",", expand=True).astype(float)
+        return df
 
-    df_routes = st.session_state["routes_cache"]
-    df_containers = load_container_map_data()
+    df_routes = load_routes_for_map()
+    df_routes = parse_location_to_latlon(df_routes)
+
+    df_containers = load_all_containers()
+    df_containers = parse_location_to_latlon(df_containers)
 
     geselecteerde_routes = st.session_state.get("geselecteerde_routes", [])
     geselecteerde_namen = st.session_state.get("extra_meegegeven_tijdelijk", [])
 
-    df_hand = df_containers[df_containers["container_name"].isin(geselecteerde_namen)].copy() if geselecteerde_namen else pd.DataFrame()
+    # 🔎 Handmatig geselecteerde containers
+    df_hand = df_containers[df_containers["container_name"].isin(geselecteerde_namen)].copy()
 
-    def parse_location(loc):
-        try:
-            lat, lon = map(float, loc.split(","))
-            return lat, lon
-        except:
-            return None, None
+    # 🗺️ Pydeck-lagen
+    layers = []
+
+    if geselecteerde_routes:
+        for route in geselecteerde_routes:
+            df_route = df_routes[df_routes["route_omschrijving"] == route]
+            color = [0, 100, 255]  # blauw
+            layers.append(pdk.Layer(
+                "ScatterplotLayer",
+                data=df_route,
+                get_position='[lon, lat]',
+                get_color=color,
+                get_radius=50,
+                pickable=True,
+                tooltip=True
+            ))
 
     if not df_hand.empty:
-        df_hand[["lat", "lon"]] = df_hand["container_location"].apply(lambda loc: pd.Series(parse_location(loc)))
+        layers.append(pdk.Layer(
+            "ScatterplotLayer",
+            data=df_hand,
+            get_position='[lon, lat]',
+            get_color='[200, 30, 0, 160]',  # rood
+            get_radius=80,
+            pickable=True,
+            tooltip=True
+        ))
 
-        def find_nearest_route(r):
-            if pd.isna(r["lat"]) or pd.isna(r["lon"]): return None
-            radius = 0.15
-            while True:
-                matches = [
-                    rp["route_omschrijving"] for _, rp in df_routes.iterrows()
-                    if rp["content_type"] == r["content_type"]
-                    and not pd.isna(rp["r_lat"])
-                    and geodesic((r["lat"], r["lon"]), (rp["r_lat"], rp["r_lon"])).km <= radius
-                ]
-                if matches: return Counter(matches).most_common(1)[0][0]
-                radius += 0.1
+    # 🔍 Tooltip
+    tooltip = {
+        "html": """
+        <b>🧺 {container_name}</b><br>
+        Type: {content_type}<br>
+        Vulgraad: {fill_level}%<br>
+        Locatie: {address}, {city}
+        """,
+        "style": {"backgroundColor": "steelblue", "color": "white"}
+    }
 
-        df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
+    # 🌍 Weergave
+    if not df_containers.empty:
+        midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
     else:
-        df_hand = pd.DataFrame(columns=[
-            "container_name", "lat", "lon", "address", "city",
-            "content_type", "fill_level", "dichtstbijzijnde_route"
-        ])
+        midpoint = [52.0, 4.3]
 
-    # Geen caching op build_map!
-    def build_map(routes_df, hand_df, selected_routes):
-        m = folium.Map(location=[52.0, 4.3], zoom_start=11)
-        kleuren = itertools.cycle([
-            "red", "blue", "green", "purple", "orange",
-            "darkred", "lightblue", "darkgreen", "cadetblue", "pink"
-        ])
-        kleur_map = {r: k for r, k in zip(selected_routes, kleuren)}
+    st.pydeck_chart(pdk.Deck(
+        map_style="mapbox://styles/mapbox/light-v9",
+        initial_view_state=pdk.ViewState(
+            latitude=midpoint[0],
+            longitude=midpoint[1],
+            zoom=11,
+            pitch=0,
+        ),
+        layers=layers,
+        tooltip=tooltip
+    ))
 
-        for _, row in routes_df[routes_df["route_omschrijving"].isin(selected_routes)].iterrows():
-            folium.CircleMarker(
-                location=(row["r_lat"], row["r_lon"]),
-                radius=6,
-                color=kleur_map[row["route_omschrijving"]],
-                fill=True,
-                fill_color=kleur_map[row["route_omschrijving"]],
-                fill_opacity=0.8,
-                tooltip=f"🚚 {row['route_omschrijving']}\n🧺 {row['content_type']}",
-            ).add_to(m)
+    # 📋 Extra info
+    if not df_hand.empty:
+        st.markdown("### 📋 Handmatig geselecteerde containers")
+        st.dataframe(df_hand[["container_name", "address", "city", "content_type", "fill_level"]], use_container_width=True)
+    else:
+        st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
 
-        for _, row in hand_df.dropna(subset=["lat", "lon"]).iterrows():
-            folium.Marker(
-                location=(row["lat"], row["lon"]),
-                popup=(f"🖤 {row['container_name']}<br>"
-                       f"Adres: {row['address']}, {row['city']}<br>"
-                       f"Type: {row['content_type']}<br>"
-                       f"Route: {row['dichtstbijzijnde_route'] or '—'}"),
-                icon=folium.Icon(color="black", icon="plus")
-            ).add_to(m)
-        return m
-
-    m = build_map(df_routes, df_hand, tuple(geselecteerde_routes))
-
-    col_kaart, col_rechts = st.columns([1, 1])
-    with col_kaart:
-        st_folium(m, width=1000, height=600)
-    with col_rechts:
-        if not df_hand.empty:
-            st.markdown("### 📋 Handmatig geselecteerde containers")
-            st.dataframe(
-                df_hand[[
-                    "container_name", "address", "city", "content_type",
-                    "fill_level", "dichtstbijzijnde_route"
-                ]],
-                use_container_width=True
-            )
-        else:
-            st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
 
 
 
