@@ -206,7 +206,7 @@ with st.sidebar:
 
                                 fill_level, container_location, combinatietelling,
 
-                                gemiddeld_vulgraad, oproute, extra_meegegeven
+                                gemiddeldvulgraad, oproute, extra_meegegeven
 
                             )
 
@@ -223,25 +223,15 @@ with st.sidebar:
                             ON CONFLICT (container_name)
 
                             DO UPDATE SET
-
                                 address = EXCLUDED.address,
-
                                 city = EXCLUDED.city,
-
                                 location_code = EXCLUDED.location_code,
-
                                 content_type = EXCLUDED.content_type,
-
                                 fill_level = EXCLUDED.fill_level,
-
                                 container_location = EXCLUDED.container_location,
-
                                 combinatietelling = EXCLUDED.combinatietelling,
-
-                                gemiddeld_vulgraad = EXCLUDED.gemiddeld_vulgraad,
-
+                                gemiddeldvulgraad = EXCLUDED.gemiddeld_vulgraad,
                                 oproute = EXCLUDED.oproute,
-
                                 extra_meegegeven = EXCLUDED.extra_meegegeven
 
                         """), row.to_dict())
