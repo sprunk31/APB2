@@ -355,7 +355,7 @@ with tab1:
     gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
     gb.configure_column("extra_meegegeven", editable=True)
     grid_response = AgGrid(
-        bewerkbaar[zichtbaar].head(75),
+        bewerkbaar[zichtbaar].head(100),
         gridOptions=gb.build(),
         update_mode=GridUpdateMode.VALUE_CHANGED,
         height=500
