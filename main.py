@@ -354,7 +354,7 @@ with tab2:
             data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
             get_fill_color='[0, 0, 0, 220]',  # zwart
-            get_maxradius=100,
+            get_radius=100,
             pickable=True
         ))
 
