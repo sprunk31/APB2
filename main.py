@@ -202,27 +202,32 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 # ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
     df = df_sidebar.copy()
-    if "refresh_needed" in st.session_state and st.session_state.refresh_needed:
+    if st.session_state.get("refresh_needed", False):
         df = run_query("SELECT * FROM apb_containers")
         st.session_state.refresh_needed = False
 
+    # Zorg dat datatypes correct zijn
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
     df["extra_meegegeven"] = df["extra_meegegeven"].astype(bool)
 
     df_all = df.copy()
+
+    # KPI-berekening
     try:
-        df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers where datum >= current_date")
+        df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum >= current_date")
         log_counts = df_logboek["gebruiker"].value_counts()
         delft_count = log_counts.get("Delft", 0)
         denhaag_count = log_counts.get("Den Haag", 0)
     except:
         delft_count = denhaag_count = 0
 
+    # KPI-weergave
     kpi1, kpi2, kpi3 = st.columns(3)
     kpi1.metric("📦 Totaal containers", len(df_all))
     kpi2.metric("📊 Vulgraad ≥ 80%", (df_all["fill_level"] >= 80).sum())
     kpi3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
 
+    # Filter op content_type en op_route
     df = df[df["content_type"] == st.session_state.selected_type]
     df = df[df["oproute"] == ("Ja" if st.session_state.op_route else "Nee")]
 
@@ -233,35 +238,32 @@ with tab1:
 
     bewerkbaar = df[df["extra_meegegeven"] == False].copy()
     st.subheader("✏️ Bewerkbare containers")
+
+    # Configureer AgGrid met filters en sortering
     gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
-
-    # Filters per kolom
-    for col in zichtbaar:
-        gb.configure_column(col, filter="agTextColumnFilter")
-
-    # Bewerken toestaan voor checkbox
+    gb.configure_default_column(filter="agTextColumnFilter", sortable=True, resizable=True)
     gb.configure_column("extra_meegegeven", editable=True)
 
-    # Sortering standaard op gemiddeldevulgraad aflopend
-    gb.configure_default_column(sortable=True)
-    gb.configure_grid_options(
-        sortModel=[{"colId": "gemiddeldevulgraad", "sort": "desc"}]
-    )
+    # Sorteer standaard op gemiddeldevulgraad desc
+    grid_options = gb.build()
+    grid_options["sortModel"] = [{"colId": "gemiddeldevulgraad", "sort": "desc"}]
 
+    # Toon de grid
     grid_response = AgGrid(
         bewerkbaar[zichtbaar],
-        gridOptions=gb.build(),
+        gridOptions=grid_options,
         update_mode=GridUpdateMode.VALUE_CHANGED,
         height=500,
-        allow_unsafe_jscode=True  # nodig voor geavanceerde gridopties
+        allow_unsafe_jscode=True
     )
 
+    # Verwerking van bewerkte data
     updated_df = grid_response["data"].copy()
     updated_df["extra_meegegeven"] = updated_df["extra_meegegeven"].astype(bool)
-
     tijdelijke_selectie = updated_df[updated_df["extra_meegegeven"] == True]["container_name"].tolist()
     st.session_state["extra_meegegeven_tijdelijk"] = tijdelijke_selectie
 
+    # Opslaan en loggen
     if st.button("✅ Wijzigingen toepassen en loggen"):
         gewijzigde_rijen = updated_df[updated_df["extra_meegegeven"] == True]
         if not gewijzigde_rijen.empty:
@@ -270,17 +272,24 @@ with tab1:
                 df_log["datum"] = pd.to_datetime(df_log["datum"], errors="coerce")
             except Exception:
                 df_log = pd.DataFrame(columns=["container_name", "datum"])
+
             vandaag = datetime.now().date()
             log_count = 0
+
             for _, row in gewijzigde_rijen.iterrows():
                 if ((df_log["container_name"] == row["container_name"]) &
                     (df_log["datum"].dt.date == vandaag)).any():
                     continue
+
                 naam = row["container_name"].strip()
+
+                # Update in containers
                 execute_query(
                     "UPDATE apb_containers SET extra_meegegeven = TRUE WHERE TRIM(container_name) = :naam",
                     {"naam": naam}
                 )
+
+                # Insert in logboek
                 execute_query(
                     """INSERT INTO apb_logboek_afvalcontainers
                     (container_name, address, city, location_code, content_type, fill_level, datum, gebruiker)
@@ -288,11 +297,13 @@ with tab1:
                     {
                         "a": row["container_name"], "b": row["address"], "c": row["city"],
                         "d": row["location_code"], "e": row["content_type"],
-                        "f": row["fill_level"], "g": datetime.now(), "h": st.session_state.get("gebruiker", "Onbekend")
+                        "f": row["fill_level"], "g": datetime.now(),
+                        "h": st.session_state.get("gebruiker", "Onbekend")
                     }
                 )
 
                 log_count += 1
+
             if log_count > 0:
                 st.success(f"✔️ {log_count} containers gelogd en bijgewerkt.")
                 st.session_state.refresh_needed = True
@@ -300,9 +311,11 @@ with tab1:
             else:
                 st.warning("⚠️ Geen nieuwe logs toegevoegd.")
 
+    # Reeds gemarkeerde containers tonen
     st.subheader("🔒 Reeds gemarkeerde containers")
     reeds = df[df["extra_meegegeven"] == True]
     st.dataframe(reeds[zichtbaar], use_container_width=True)
+
 
 # ─── TAB 2: KAART ─────────────────────────────────
 with tab2:
