@@ -285,6 +285,7 @@ with tab2:
     if df_routes is None or st.session_state.refresh_needed:
         df_routes = load_routes_cache()
         st.session_state.routes_cache = df_routes
+        st.session_state.refresh_needed = False  # ← voeg deze regel toe
 
     df_containers = load_container_map_data()
 
