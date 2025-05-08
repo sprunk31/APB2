@@ -119,7 +119,9 @@ with st.sidebar:
 
                 df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
                     lambda loc: pd.Series(_parse(loc)))
-                st.session_state["routes_cache"] = df_routes_full
+                if "routes_cache" not in st.session_state or st.session_state.refresh_needed:
+                    st.session_state["routes_cache"] = df_routes_full
+                    st.session_state.refresh_needed = True
 
                 beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
                 st.session_state.geselecteerde_routes = st.multiselect(
@@ -252,7 +254,8 @@ with st.sidebar:
                 df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
                     lambda loc: pd.Series(_parse(loc)))
 
-                st.session_state["routes_cache"] = df_routes_full
+                if "routes_cache" not in st.session_state or st.session_state.refresh_needed:
+                    st.session_state["routes_cache"] = df_routes_full
 
                 # 🧮 6. Log aantal volle containers
 
@@ -277,6 +280,7 @@ with st.sidebar:
                 # ✅ 7. Afronden
 
                 st.success("✅ Gegevens succesvol geüpload en verwerkt.")
+                st.session_state.refresh_needed = True
 
 
             except Exception as e:
@@ -509,4 +513,4 @@ with tab3:
                     }
                 )
                 st.success("📝 Afwijking succesvol gelogd.")
-
+                st.session_state.refresh_needed = True
