@@ -253,6 +253,46 @@ with tab1:
 with tab2:
     st.subheader("🗺️ Containerkaart")
 
+    @st.cache_data(ttl=300)
+    def load_container_map_data():
+        return run_query("""
+            SELECT container_name, container_location, content_type, fill_level, address, city
+            FROM apb_containers
+        """)
+
+    @st.cache_data(ttl=300)
+    def load_routes_cache():
+        df_routes_full = run_query("""
+            SELECT r.route_omschrijving, r.omschrijving AS container_name,
+                   c.container_location, c.content_type
+            FROM apb_routes r
+            JOIN apb_containers c ON r.omschrijving = c.container_name
+            WHERE c.container_location IS NOT NULL
+        """)
+
+        def _parse(loc):
+            try:
+                return tuple(map(float, loc.split(",")))
+            except:
+                return (None, None)
+
+        df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
+            lambda loc: pd.Series(_parse(loc))
+        )
+        return df_routes_full
+
+    df_routes = st.session_state.get("routes_cache")
+    if df_routes is None or st.session_state.refresh_needed:
+        df_routes = load_routes_cache()
+        st.session_state.routes_cache = df_routes
+
+    df_containers = load_container_map_data()
+
+    geselecteerde_routes = st.session_state.get("geselecteerde_routes", [])
+    geselecteerde_namen = st.session_state.get("extra_meegegeven_tijdelijk", [])
+
+    df_hand = df_containers[df_containers["container_name"].isin(geselecteerde_namen)].copy() if geselecteerde_namen else pd.DataFrame()
+
     def parse_location(loc):
         try:
             lat, lon = map(float, loc.split(","))
@@ -260,20 +300,6 @@ with tab2:
         except:
             return None, None
 
-    df_routes = st.session_state.get("routes_cache")
-    if df_routes is None:
-        st.error("❗ Geen route-cache gevonden. Upload eerst de data.")
-        st.stop()
-
-    df_containers = run_query("""
-        SELECT container_name, container_location, content_type, fill_level, address, city
-        FROM apb_containers
-    """)
-
-    geselecteerde_routes = st.session_state.get("geselecteerde_routes", [])
-    geselecteerde_namen = st.session_state.get("extra_meegegeven_tijdelijk", [])
-
-    df_hand = df_containers[df_containers["container_name"].isin(geselecteerde_namen)].copy() if geselecteerde_namen else pd.DataFrame()
     if not df_hand.empty:
         df_hand[["lat", "lon"]] = df_hand["container_location"].apply(lambda loc: pd.Series(parse_location(loc)))
 
