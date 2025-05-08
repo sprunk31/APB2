@@ -353,6 +353,7 @@ with tab1:
     bewerkbaar = df[df["extra_meegegeven"] == False].copy()
     st.subheader("✏️ Bewerkbare containers")
     gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
+    gb.configure_default_column(filter=True)
     gb.configure_column("extra_meegegeven", editable=True)
     grid_response = AgGrid(
         bewerkbaar[zichtbaar].head(100),
