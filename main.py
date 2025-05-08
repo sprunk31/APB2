@@ -321,7 +321,7 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 with tab1:
     df = df_sidebar.copy()
     if "refresh_needed" in st.session_state and st.session_state.refresh_needed:
-        df = run_query("SELECT * FROM apb_containers order by gemiddeldevulgraad desc limit 50")
+        df = run_query("SELECT * FROM apb_containers")
         st.session_state.refresh_needed = False
 
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
@@ -354,7 +354,7 @@ with tab1:
     gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
     gb.configure_column("extra_meegegeven", editable=True)
     grid_response = AgGrid(
-        bewerkbaar[zichtbaar],
+        bewerkbaar[zichtbaar].head(75),
         gridOptions=gb.build(),
         update_mode=GridUpdateMode.VALUE_CHANGED,
         height=500
