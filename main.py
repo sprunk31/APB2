@@ -234,13 +234,28 @@ with tab1:
     bewerkbaar = df[df["extra_meegegeven"] == False].copy()
     st.subheader("✏️ Bewerkbare containers")
     gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
+
+    # Filters per kolom
+    for col in zichtbaar:
+        gb.configure_column(col, filter="agTextColumnFilter")
+
+    # Bewerken toestaan voor checkbox
     gb.configure_column("extra_meegegeven", editable=True)
+
+    # Sortering standaard op gemiddeldevulgraad aflopend
+    gb.configure_default_column(sortable=True)
+    gb.configure_grid_options(
+        sortModel=[{"colId": "gemiddeldevulgraad", "sort": "desc"}]
+    )
+
     grid_response = AgGrid(
         bewerkbaar[zichtbaar],
         gridOptions=gb.build(),
         update_mode=GridUpdateMode.VALUE_CHANGED,
-        height=500
+        height=500,
+        allow_unsafe_jscode=True  # nodig voor geavanceerde gridopties
     )
+
     updated_df = grid_response["data"].copy()
     updated_df["extra_meegegeven"] = updated_df["extra_meegegeven"].astype(bool)
 
