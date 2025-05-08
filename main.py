@@ -334,12 +334,9 @@ with tab2:
             "ScatterplotLayer",
             data=df_r,
             get_position='[r_lon, r_lat]',
-            get_fill_color=kleur_map[route],
+            get_fill_color=[255, 0, 0, 160],  # vaste kleur, semi-transparant
             radiusMinPixels=6,
-            radiusMaxPixels=6,
-            pickable=True,
-            get_line_color=[0, 0, 0],
-            line_width_min_pixels=0
+            pickable=True
         )
 
     if not df_hand.empty:
@@ -352,15 +349,14 @@ with tab2:
                 Locatie: {row['address']}, {row['city']}
             """, axis=1
         )
-        pdk.Layer(
+        layers.append(pdk.Layer(
             "ScatterplotLayer",
             data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
-            get_fill_color='[0, 0, 0, 220]',
-            radiusMinPixels=10,
-            radiusMaxPixels=10,
+            get_fill_color='[0, 0, 0, 220]',  # zwart
+            get_maxradius=100,
             pickable=True
-        )
+        ))
 
     # ───── Tooltip ──────────────────────────────────
     tooltip = {
