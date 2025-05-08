@@ -260,7 +260,7 @@ with tab2:
     def load_routes_for_map():
         df = run_query("""
             SELECT r.route_omschrijving, r.omschrijving AS container_name,
-                   c.container_location, c.content_type, c.fill_level
+                   c.container_location, c.content_type, c.fill_level, c.address, c.city
             FROM apb_routes r
             JOIN apb_containers c ON r.omschrijving = c.container_name
             WHERE c.container_location IS NOT NULL
