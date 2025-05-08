@@ -335,7 +335,7 @@ with tab2:
     data=df_r,
     get_position='[r_lon, r_lat]',
     get_fill_color=kleur_map[route],
-    radiusMinPixels=5,
+    radiusMinPixels=4,
     radiusMaxPixels=6,
     pickable=True,
     get_line_color=[0, 0, 0],
