@@ -251,12 +251,10 @@ with tab1:
 
 
 # ─── TAB 2: KAART ─────────────────────────────────
-import pydeck as pdk
-
 with tab2:
     st.subheader("🗺️ Containerkaart (pydeck)")
 
-    # 🔄 Data ophalen (gecached)
+    # 📦 Cache functies
     @st.cache_data(ttl=300)
     def load_routes_for_map():
         df = run_query("""
@@ -284,17 +282,15 @@ with tab2:
     geselecteerde_routes = st.session_state.get("geselecteerde_routes", [])
     geselecteerde_namen = st.session_state.get("extra_meegegeven_tijdelijk", [])
 
+    # 🔎 Handmatig geselecteerde containers
     df_hand = df_containers[df_containers["container_name"].isin(geselecteerde_namen)].copy()
 
-    # 🔍 Bepaal dichtstbijzijnde route per handmatig geselecteerde container
+    # 🔄 Bereken dichtstbijzijnde route
     if not df_hand.empty:
-        from geopy.distance import geodesic
-        from collections import Counter
-
         def find_nearest_route(r):
             if pd.isna(r["lat"]) or pd.isna(r["lon"]): return None
             radius = 0.15
-            while radius < 5:  # veiligheid
+            while True:
                 matches = [
                     rp["route_omschrijving"] for _, rp in df_routes.iterrows()
                     if rp["content_type"] == r["content_type"]
@@ -304,23 +300,21 @@ with tab2:
                 if matches:
                     return Counter(matches).most_common(1)[0][0]
                 radius += 0.1
-            return None
+                if radius > 5: return None  # failsafe
 
         df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
     else:
-        df_hand = pd.DataFrame(columns=[
-            "container_name", "lat", "lon", "address", "city",
-            "content_type", "fill_level", "dichtstbijzijnde_route"
-        ])
+        df_hand["dichtstbijzijnde_route"] = None
 
-    # 🗺️ Pydeck lagen opbouwen
-    layers = []
-    kleuren = itertools.cycle([
+    # 🖌️ Kleuren per route
+    kleuren = [
         [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
         [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
-    ])
-    kleur_map = {route: kleur for route, kleur in zip(geselecteerde_routes, kleuren)}
+    ]
+    kleur_map = {route: kleuren[i % len(kleuren)] for i, route in enumerate(geselecteerde_routes)}
 
+    # 📍 Layers opbouwen
+    layers = []
     for route in geselecteerde_routes:
         df_r = df_routes[df_routes["route_omschrijving"] == route]
         kleur = kleur_map[route]
@@ -329,33 +323,42 @@ with tab2:
             data=df_r,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur,
-            get_radius=60,
-            pickable=True,
+            get_radius=100,
+            pickable=True
         ))
 
     if not df_hand.empty:
         layers.append(pdk.Layer(
             "ScatterplotLayer",
-            data=df_hand,
+            data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
-            get_fill_color='[200, 30, 0, 160]',
-            get_radius=90,
-            pickable=True,
+            get_fill_color='[200, 30, 0, 160]',  # rood
+            get_radius=140,
+            pickable=True
         ))
 
+    # 🧩 Tooltip
     tooltip = {
         "html": """
-            <b>{container_name}</b><br>
+            <b>🧺 {container_name}</b><br>
             Type: {content_type}<br>
             Vulgraad: {fill_level}%<br>
             Route: {dichtstbijzijnde_route}<br>
             Locatie: {address}, {city}
         """,
-        "style": {"backgroundColor": "steelblue", "color": "white"}
+        "style": {
+            "backgroundColor": "steelblue",
+            "color": "white"
+        }
     }
 
-    midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()] if not df_containers.empty else [52.0, 4.3]
+    # 🗺️ Middelpunt bepalen
+    if not df_containers.empty:
+        midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
+    else:
+        midpoint = [52.0, 4.3]
 
+    # 🌍 Weergave pydeck kaart
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/light-v9",
         initial_view_state=pdk.ViewState(
@@ -368,16 +371,18 @@ with tab2:
         tooltip=tooltip
     ))
 
-    # 📋 Info over handmatig geselecteerde containers
+    # 📋 Extra info
     if not df_hand.empty:
         st.markdown("### 📋 Handmatig geselecteerde containers")
         st.dataframe(
-            df_hand[["container_name", "address", "city", "content_type", "fill_level", "dichtstbijzijnde_route"]],
+            df_hand[[
+                "container_name", "address", "city",
+                "content_type", "fill_level", "dichtstbijzijnde_route"
+            ]],
             use_container_width=True
         )
     else:
         st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
-
 
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
