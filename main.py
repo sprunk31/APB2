@@ -321,7 +321,7 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 with tab1:
     df = df_sidebar.copy()
     if "refresh_needed" in st.session_state and st.session_state.refresh_needed:
-        df = run_query("SELECT * FROM apb_containers")
+        df = run_query("SELECT * FROM apb_containers order by gemiddeldevulgraad desc limit 100")
         st.session_state.refresh_needed = False
 
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
