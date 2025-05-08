@@ -133,34 +133,25 @@ with st.sidebar:
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
+
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
         file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
         file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
-        if file1 and file2:
 
+        if file1 and file2:
             try:
-                # 📥 1. Lees Excel-bestanden in
                 df1 = pd.read_excel(file1)
                 df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
                 df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
                 df2 = pd.read_excel(file2)
-
-                # 🧹 2. Filter en verrijk containerdata
-                df1 = df1[
-                    (df1['operational_state'] == 'In use') &
-                    (df1['status'] == 'In use') &
-                    (df1['on_hold'] == 'No')
-                    ].copy()
+                df1 = df1[(df1['operational_state'] == 'In use') & (df1['status'] == 'In use') & (df1['on_hold'] == 'No')].copy()
                 df1["content_type"] = df1["content_type"].apply(lambda x: "Glas" if "glass" in str(x).lower() else x)
-                df1["combinatietelling"] = df1.groupby(["location_code", "content_type"])["content_type"].transform(
-                    "count")
-                df1["gemiddeldevulgraad"] = df1.groupby(["location_code", "content_type"])["fill_level"].transform(
-                    "mean")
-                df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"].values).map({True: "Ja", False: "Nee"})
-                df1["extra_meegegeven"] = False
-
-                # 🎯 3. Beperk tot relevante kolommen
+                df1['combinatietelling'] = df1.groupby(['location_code', 'content_type'])['content_type'].transform('count')
+                df1['gemiddeldevulgraad'] = df1.groupby(['location_code', 'content_type'])['fill_level'].transform('mean')
+                df1['oproute'] = df1['container_name'].isin(df2['Omschrijving'].values).map({True: 'Ja', False: 'Nee'})
+                df1['extra_meegegeven'] = False
+                # Beperk tot alleen de gewenste kolommen
                 kolommen_bewaren = [
                     "container_name", "address", "city", "location_code", "content_type",
                     "fill_level", "container_location", "combinatietelling",
@@ -168,53 +159,25 @@ with st.sidebar:
                 ]
                 df1 = df1[kolommen_bewaren]
 
-                # 🧠 4. Voeg containers toe of werk ze bij (bulk UPSERT)
-                from more_itertools import chunked
-                engine = get_engine()
-                bulk_upsert_sql = """
-                    INSERT INTO apb_containers (
-                        container_name, address, city, location_code, content_type,
-                        fill_level, container_location, combinatietelling,
-                        gemiddeldevulgraad, oproute, extra_meegegeven
-                    )
-                    VALUES (
-                        :container_name, :address, :city, :location_code, :content_type,
-                        :fill_level, :container_location, :combinatietelling,
-                        :gemiddeldevulgraad, :oproute, :extra_meegegeven
-                    )
-                    ON CONFLICT (container_name)
-                    DO UPDATE SET
-                        address = EXCLUDED.address,
-                        city = EXCLUDED.city,
-                        location_code = EXCLUDED.location_code,
-                        content_type = EXCLUDED.content_type,
-                        fill_level = EXCLUDED.fill_level,
-                        container_location = EXCLUDED.container_location,
-                        combinatietelling = EXCLUDED.combinatietelling,
-                        gemiddeldevulgraad = EXCLUDED.gemiddeldevulgraad,
-                        oproute = EXCLUDED.oproute,
-                        extra_meegegeven = EXCLUDED.extra_meegegeven
-                """
-                with engine.begin() as conn:
-                    for chunk in chunked(df1.to_dict(orient="records"), 500):
-                        conn.execute(text(bulk_upsert_sql), chunk)
+                # Verwijder alle bestaande rijen, maar behoud structuur
+                execute_query("DELETE FROM apb_containers")
 
-                # 🗺️ 5. Verwerk routes (voeg toe als nieuw)
+                # Voeg daarna nieuwe records toe
+                df1.to_sql("apb_containers", get_engine(), if_exists="append", index=False)
+
                 df2 = df2.rename(columns={
                     "Route Omschrijving": "route_omschrijving",
                     "Omschrijving": "omschrijving",
                     "Datum": "datum"
                 })
-                df2 = df2[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
-                with engine.begin() as conn:
-                    for chunk in chunked(df2.to_dict(orient="records"), 500):
-                        conn.execute(text("""
-                            INSERT INTO apb_routes (route_omschrijving, omschrijving, datum)
-                            VALUES (:route_omschrijving, :omschrijving, :datum)
-                            ON CONFLICT (route_omschrijving, omschrijving, datum) DO NOTHING
-                        """), chunk)
+                # Verwijder alle bestaande rijen, behoud structuur
+                execute_query("DELETE FROM apb_routes")
 
-                # ♻️ 6. Update route-cache in session_state
+                # Voeg nieuwe records toe
+                df2[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates().to_sql(
+                    "apb_routes", get_engine(), if_exists="append", index=False
+                )
+
                 df_routes_full = run_query("""
                     SELECT r.route_omschrijving, r.omschrijving AS container_name,
                            c.container_location, c.content_type
@@ -224,22 +187,12 @@ with st.sidebar:
                 """)
 
                 def _parse(loc):
-                    try:
-                        return tuple(map(float, loc.split(",")))
-                    except:
-                        return (None, None)
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc))
-                )
+                    try: return tuple(map(float, loc.split(",")))
+                    except: return (None, None)
+
+                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(lambda loc: pd.Series(_parse(loc)))
                 st.session_state["routes_cache"] = df_routes_full
-
-                # ✅ 7. Afronden
-                st.success("✅ Gegevens succesvol geüpload en bijgewerkt.")
-
-            except Exception as e:
-
-                st.error(f"❌ Fout bij verwerken van bestanden: {e}")
-
+                st.success("✅ Gegevens succesvol opgeslagen in de database.")
                 # 🧮 Tel aantal containers met fill_level ≥ 80
                 aantal_volle_bakken = (df1["fill_level"] >= 80).sum()
                 vandaag = datetime.now().date()
@@ -285,7 +238,6 @@ with tab1:
 
     df = df[df["content_type"] == st.session_state.selected_type]
     df = df[df["oproute"] == ("Ja" if st.session_state.op_route else "Nee")]
-    df = df.sort_values(by="gemiddeldevulgraad", ascending=False)
 
     zichtbaar = [
         "container_name", "address", "city", "location_code", "content_type",
@@ -303,7 +255,6 @@ with tab1:
 
     # Sorteer bijv. nog op vulgraad
     bewerkbaar = bewerkbaar.sort_values(by="gemiddeldevulgraad", ascending=False)
-
     st.subheader("✏️ Bewerkbare containers")
     gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
     gb.configure_default_column(filter=True)
@@ -315,7 +266,6 @@ with tab1:
         update_mode=GridUpdateMode.VALUE_CHANGED,
         height=500
     )
-
     updated_df = grid_response["data"].copy()
     updated_df["extra_meegegeven"] = updated_df["extra_meegegeven"].astype(bool)
 
