@@ -350,17 +350,19 @@ with tab1:
         "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
     ]
 
-    # Filter op nog niet gemarkeerde rijen
+    # Selecteer alleen containers die nog niet extra zijn meegegeven
     bewerkbaar = df[df["extra_meegegeven"] == False].copy()
 
-    # Sorteer opnieuw op vulgraad
+    # Filter op vulgraad-criteria
+    bewerkbaar = bewerkbaar[
+        (bewerkbaar["gemiddeldevulgraad"] > 60) |
+        (bewerkbaar["fill_level"] > 80)
+        ]
+
+    # Sorteer bijv. nog op vulgraad
     bewerkbaar = bewerkbaar.sort_values(by="gemiddeldevulgraad", ascending=False)
 
-    # Pak de top 75 na filtering
-    bewerkbaar = bewerkbaar.head(75)
-
-    st.subheader("✏️ Bewerkbare containers (max. 75)")
-
+    st.subheader("✏️ Bewerkbare containers")
     gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
     gb.configure_default_column(filter=True)
     gb.configure_column("extra_meegegeven", editable=True)
@@ -371,6 +373,7 @@ with tab1:
         update_mode=GridUpdateMode.VALUE_CHANGED,
         height=500
     )
+
     updated_df = grid_response["data"].copy()
     updated_df["extra_meegegeven"] = updated_df["extra_meegegeven"].astype(bool)
 
