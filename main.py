@@ -135,6 +135,7 @@ with st.sidebar:
 
 
 
+
     elif rol == "Upload":
 
         st.markdown("### 📤 Upload bestanden")
@@ -159,11 +160,15 @@ with st.sidebar:
 
                 # 🧹 2. Filter en verrijk containerdata
 
-                df1 = df1[(df1['operational_state'] == 'In use') &
+                df1 = df1[
 
-                          (df1['status'] == 'In use') &
+                    (df1['operational_state'] == 'In use') &
 
-                          (df1['on_hold'] == 'No')].copy()
+                    (df1['status'] == 'In use') &
+
+                    (df1['on_hold'] == 'No')
+
+                    ].copy()
 
                 df1["content_type"] = df1["content_type"].apply(lambda x: "Glas" if "glass" in str(x).lower() else x)
 
@@ -191,52 +196,66 @@ with st.sidebar:
 
                 df1 = df1[kolommen_bewaren]
 
-                # 🧠 4. Voeg containers toe of werk ze bij (UPSERT)
+                # 🧠 4. Voeg containers toe of werk ze bij (bulk UPSERT)
+
+                from more_itertools import chunked
 
                 engine = get_engine()
 
+                bulk_upsert_sql = """
+
+                    INSERT INTO apb_containers (
+
+                        container_name, address, city, location_code, content_type,
+
+                        fill_level, container_location, combinatietelling,
+
+                        gemiddeldevulgraad, oproute, extra_meegegeven
+
+                    )
+
+                    VALUES (
+
+                        :container_name, :address, :city, :location_code, :content_type,
+
+                        :fill_level, :container_location, :combinatietelling,
+
+                        :gemiddeldevulgraad, :oproute, :extra_meegegeven
+
+                    )
+
+                    ON CONFLICT (container_name)
+
+                    DO UPDATE SET
+
+                        address = EXCLUDED.address,
+
+                        city = EXCLUDED.city,
+
+                        location_code = EXCLUDED.location_code,
+
+                        content_type = EXCLUDED.content_type,
+
+                        fill_level = EXCLUDED.fill_level,
+
+                        container_location = EXCLUDED.container_location,
+
+                        combinatietelling = EXCLUDED.combinatietelling,
+
+                        gemiddeldevulgraad = EXCLUDED.gemiddeldevulgraad,
+
+                        oproute = EXCLUDED.oproute,
+
+                        extra_meegegeven = EXCLUDED.extra_meegegeven
+
+                """
+
                 with engine.begin() as conn:
 
-                    for _, row in df1.iterrows():
-                        conn.execute(text("""
+                    for chunk in chunked(df1.to_dict(orient="records"), 500):
+                        conn.execute(text(bulk_upsert_sql), chunk)
 
-                            INSERT INTO apb_containers (
-
-                                container_name, address, city, location_code, content_type,
-
-                                fill_level, container_location, combinatietelling,
-
-                                gemiddeldevulgraad, oproute, extra_meegegeven
-
-                            )
-
-                            VALUES (
-
-                                :container_name, :address, :city, :location_code, :content_type,
-
-                                :fill_level, :container_location, :combinatietelling,
-
-                                :gemiddeldevulgraad, :oproute, :extra_meegegeven
-
-                            )
-
-                            ON CONFLICT (container_name)
-
-                            DO UPDATE SET
-                                address = EXCLUDED.address,
-                                city = EXCLUDED.city,
-                                location_code = EXCLUDED.location_code,
-                                content_type = EXCLUDED.content_type,
-                                fill_level = EXCLUDED.fill_level,
-                                container_location = EXCLUDED.container_location,
-                                combinatietelling = EXCLUDED.combinatietelling,
-                                gemiddeldevulgraad = EXCLUDED.gemiddeldevulgraad,
-                                oproute = EXCLUDED.oproute,
-                                extra_meegegeven = EXCLUDED.extra_meegegeven
-
-                        """), row.to_dict())
-
-                # 🗺️ 5. Verwerk routes (toevoegen indien nieuw)
+                # 🗺️ 5. Verwerk routes (voeg toe als nieuw)
 
                 df2 = df2.rename(columns={
 
@@ -252,18 +271,16 @@ with st.sidebar:
 
                 with engine.begin() as conn:
 
-                    for _, row in df2.iterrows():
+                    for chunk in chunked(df2.to_dict(orient="records"), 500):
                         conn.execute(text("""
 
                             INSERT INTO apb_routes (route_omschrijving, omschrijving, datum)
 
                             VALUES (:route_omschrijving, :omschrijving, :datum)
 
-                            ON CONFLICT (route_omschrijving, omschrijving, datum)
+                            ON CONFLICT (route_omschrijving, omschrijving, datum) DO NOTHING
 
-                            DO NOTHING
-
-                        """), row.to_dict())
+                        """), chunk)
 
                 # ♻️ 6. Update route-cache in session_state
 
@@ -285,18 +302,30 @@ with st.sidebar:
                 def _parse(loc):
 
                     try:
+
                         return tuple(map(float, loc.split(",")))
 
                     except:
+
                         return (None, None)
 
 
                 df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc)))
+
+                    lambda loc: pd.Series(_parse(loc))
+
+                )
 
                 st.session_state["routes_cache"] = df_routes_full
+
                 # ✅ 7. Afronden
+
                 st.success("✅ Gegevens succesvol geüpload en bijgewerkt.")
+
+
+            except Exception as e:
+
+                st.error(f"❌ Fout bij verwerken van bestanden: {e}")
 
                 # 🧮 Tel aantal containers met fill_level ≥ 80
                 aantal_volle_bakken = (df1["fill_level"] >= 80).sum()
