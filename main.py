@@ -10,8 +10,6 @@ from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from collections import Counter
 
-
-
 # ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -42,6 +40,30 @@ def get_engine():
     )
     return create_engine(db_url)
 
+# ─── GECACHEDE QUERIES ──────────────────────────
+@st.cache_data(ttl=300)
+def get_df_sidebar():
+    df = run_query("SELECT * FROM apb_containers")
+    df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
+    df["extra_meegegeven"] = df["extra_meegegeven"].astype(bool)
+    return df
+
+@st.cache_data(ttl=300)
+def get_df_routes():
+    return run_query("""
+        SELECT r.route_omschrijving, r.omschrijving AS container_name,
+               r.datum, c.container_location, c.content_type
+        FROM apb_routes r
+        JOIN apb_containers c ON r.omschrijving = c.container_name
+        WHERE r.datum >= current_date AND c.container_location IS NOT NULL
+    """)
+
+@st.cache_data(ttl=300)
+def get_df_containers():
+    return run_query("""
+        SELECT container_name, container_location, content_type, fill_level, address, city
+        FROM apb_containers
+    """)
 
 def run_query(query, params=None):
     with get_engine().connect() as conn:
@@ -56,35 +78,32 @@ st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
 st.title("♻️ Afvalcontainerbeheer Dashboard")
 
 # ─── SESSIESTATE INITIALISATIE ─────────────────────────────
-if "op_route" not in st.session_state:
-    st.session_state.op_route = False
+def init_session_state():
+    defaults = {
+        "op_route": False,
+        "selected_type": None,
+        "refresh_needed": False,
+        "extra_meegegeven_tijdelijk": [],
+        "geselecteerde_routes": [],
+        "gebruiker": "Onbekend"
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
-if "selected_type" not in st.session_state:
-    st.session_state.selected_type = None
-
-if "refresh_needed" not in st.session_state:
-    st.session_state.refresh_needed = False
-
-if "extra_meegegeven_tijdelijk" not in st.session_state:
-    st.session_state.extra_meegegeven_tijdelijk = []
-
-if "geselecteerde_routes" not in st.session_state:
-    st.session_state.geselecteerde_routes = []
-
-if "gebruiker" not in st.session_state:
-    st.session_state.gebruiker = "Onbekend"
-
+init_session_state()
 
 # ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
 
-    # Altijd containers laden
     try:
-        df_sidebar = run_query("SELECT * FROM apb_containers")
-        df_sidebar["fill_level"] = pd.to_numeric(df_sidebar["fill_level"], errors="coerce")
-        df_sidebar["extra_meegegeven"] = df_sidebar["extra_meegegeven"].astype(bool)
+        if st.session_state.refresh_needed:
+            st.cache_data.clear()
+            st.session_state.refresh_needed = False
+
+        df_sidebar = get_df_sidebar()
     except Exception as e:
         st.error(f"❌ Fout bij laden van containerdata: {e}")
         df_sidebar = pd.DataFrame()
@@ -93,35 +112,24 @@ with st.sidebar:
         gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"])
         st.markdown("### 🔎 Filters")
         types = sorted(df_sidebar["content_type"].dropna().unique())
-        if "selected_type" not in st.session_state or st.session_state.selected_type not in types:
+        if st.session_state.selected_type not in types:
             st.session_state.selected_type = types[0] if types else None
         st.session_state.selected_type = st.selectbox("Content type", types, index=types.index(st.session_state.selected_type))
         st.session_state.op_route = st.toggle("📍 Alleen op route", value=st.session_state.op_route)
 
         st.markdown("### 🚚 Routeselectie")
         try:
-            df_routes_full = run_query("""
-                SELECT r.route_omschrijving, r.omschrijving AS container_name,
-                       r.datum, c.container_location, c.content_type
-                FROM apb_routes r
-                JOIN apb_containers c ON r.omschrijving = c.container_name
-                WHERE r.datum >= current_date AND c.container_location IS NOT NULL
-            """)
+            df_routes_full = get_df_routes()
 
             if not df_routes_full.empty:
-                # Parseer coördinaten en zet in session_state
                 def _parse(loc):
-                    try:
-                        return tuple(map(float, loc.split(",")))
-                    except:
-                        return (None, None)
+                    try: return tuple(map(float, loc.split(",")))
+                    except: return (None, None)
 
+                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(lambda loc: pd.Series(_parse(loc)))
 
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc)))
-                if "routes_cache" not in st.session_state or st.session_state.refresh_needed:
+                if "routes_cache" not in st.session_state:
                     st.session_state["routes_cache"] = df_routes_full
-                    st.session_state.refresh_needed = True
 
                 beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
                 st.session_state.geselecteerde_routes = st.multiselect(
@@ -131,161 +139,10 @@ with st.sidebar:
                     placeholder="Klik om routes te selecteren (blijft geselecteerd)",
                 )
             else:
-                st.info("📭 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
+                st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
-
-
-    elif rol == "Upload":
-
-        st.markdown("### 📤 Upload bestanden")
-
-        file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
-
-        file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
-
-        if file1 and file2:
-
-            try:
-
-                # 📥 1. Lees en verwerk bestanden
-
-                df1 = pd.read_excel(file1)
-
-                df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
-
-                df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
-
-                df2 = pd.read_excel(file2)
-
-                # 🧹 2. Filter en verrijk containerdata
-
-                df1 = df1[
-
-                    (df1['operational_state'] == 'In use') &
-
-                    (df1['status'] == 'In use') &
-
-                    (df1['on_hold'] == 'No')
-
-                    ].copy()
-
-                df1["content_type"] = df1["content_type"].apply(lambda x: "Glas" if "glass" in str(x).lower() else x)
-
-                df1["combinatietelling"] = df1.groupby(["location_code", "content_type"])["content_type"].transform(
-                    "count")
-
-                df1["gemiddeldevulgraad"] = df1.groupby(["location_code", "content_type"])["fill_level"].transform(
-                    "mean")
-
-                df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"].values).map({True: "Ja", False: "Nee"})
-
-                df1["extra_meegegeven"] = False
-
-                kolommen_bewaren = [
-
-                    "container_name", "address", "city", "location_code", "content_type",
-
-                    "fill_level", "container_location", "combinatietelling",
-
-                    "gemiddeldevulgraad", "oproute", "extra_meegegeven"
-
-                ]
-
-                df1 = df1[kolommen_bewaren]
-
-                # 🚀 3. Tabel legen en data snel opnieuw invoegen
-
-                engine = get_engine()
-
-                with engine.begin() as conn:
-
-                    conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
-
-                df1.to_sql("apb_containers", engine, if_exists="append", index=False)
-
-                # 📦 4. Verwerk routes
-
-                df2 = df2.rename(columns={
-
-                    "Route Omschrijving": "route_omschrijving",
-
-                    "Omschrijving": "omschrijving",
-
-                    "Datum": "datum"
-
-                })
-
-                df2 = df2[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
-
-                with engine.begin() as conn:
-
-                    conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
-
-                df2.to_sql("apb_routes", engine, if_exists="append", index=False)
-
-                # 🗺️ 5. Route-cache bijwerken
-
-                df_routes_full = run_query("""
-
-                    SELECT r.route_omschrijving, r.omschrijving AS container_name,
-
-                           c.container_location, c.content_type
-
-                    FROM apb_routes r
-
-                    JOIN apb_containers c ON r.omschrijving = c.container_name
-
-                    WHERE c.container_location IS NOT NULL
-
-                """)
-
-
-                def _parse(loc):
-
-                    try:
-                        return tuple(map(float, loc.split(",")))
-
-                    except:
-                        return (None, None)
-
-
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc)))
-
-                if "routes_cache" not in st.session_state or st.session_state.refresh_needed:
-                    st.session_state["routes_cache"] = df_routes_full
-
-                # 🧮 6. Log aantal volle containers
-
-                aantal_volle_bakken = int((df1["fill_level"] >= 80).sum())
-
-                vandaag = datetime.now().date()
-
-                with engine.begin() as conn:
-
-                    conn.execute(text("""
-
-                        INSERT INTO apb_logboek_totaal (datum, aantal_volle_bakken)
-
-                        VALUES (:datum, :aantal)
-
-                        ON CONFLICT (datum)
-
-                        DO UPDATE SET aantal_volle_bakken = EXCLUDED.aantal_volle_bakken
-
-                    """), {"datum": vandaag, "aantal": aantal_volle_bakken})
-
-                # ✅ 7. Afronden
-
-                st.success("✅ Gegevens succesvol geüpload en verwerkt.")
-                st.session_state.refresh_needed = True
-
-
-            except Exception as e:
-
-                st.error(f"❌ Fout bij verwerken van bestanden: {e}")
 
 # ─── TABS ─────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
