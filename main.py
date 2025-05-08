@@ -206,7 +206,7 @@ with st.sidebar:
 
                                 fill_level, container_location, combinatietelling,
 
-                                gemiddeldvulgraad, oproute, extra_meegegeven
+                                gemiddeldevulgraad, oproute, extra_meegegeven
 
                             )
 
@@ -230,7 +230,7 @@ with st.sidebar:
                                 fill_level = EXCLUDED.fill_level,
                                 container_location = EXCLUDED.container_location,
                                 combinatietelling = EXCLUDED.combinatietelling,
-                                gemiddeldvulgraad = EXCLUDED.gemiddeld_vulgraad,
+                                gemiddeldevulgraad = EXCLUDED.gemiddeld_vulgraad,
                                 oproute = EXCLUDED.oproute,
                                 extra_meegegeven = EXCLUDED.extra_meegegeven
 
