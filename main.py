@@ -96,48 +96,58 @@ init_session_state()
 
 # ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
-    st.header("📂 Menu")
+    st.markdown("### 📊 KPI's")
+    try:
+        df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers where datum >= current_date")
+        log_counts = df_logboek["gebruiker"].value_counts()
+        delft_count = log_counts.get("Delft", 0)
+        denhaag_count = log_counts.get("Den Haag", 0)
+    except:
+        delft_count = denhaag_count = 0
 
-    sidebar_tab = st.radio(
-        "Sectie", ["Instellingen", "KPI's", "Upload"],
-        label_visibility="collapsed", horizontal=False
-    )
+    try:
+        df_all = get_df_sidebar()
+    except:
+        df_all = pd.DataFrame()
 
-    if sidebar_tab == "Instellingen":
-        st.subheader("⚙️ Instellingen")
+    st.metric("📦 Totaal containers", len(df_all))
+    st.metric("📊 Vulgraad ≥ 80%", (df_all["fill_level"] >= 80).sum())
+    st.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
+
+    st.divider()
+    st.markdown("### 📂 Menu")
+
+    tab = st.radio("Sectie", ["Instellingen", "Upload"], label_visibility="collapsed")
+
+    if tab == "Instellingen":
         rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
         st.session_state["rol"] = rol
-
-        try:
-            if st.session_state.refresh_needed:
-                st.cache_data.clear()
-                st.session_state.refresh_needed = False
-
-            df_sidebar = get_df_sidebar()
-        except Exception as e:
-            st.error(f"❌ Fout bij laden van containerdata: {e}")
-            df_sidebar = pd.DataFrame()
 
         if rol == "Gebruiker":
             gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"])
             st.session_state["gebruiker"] = gebruiker
             st.markdown("### 🔎 Filters")
-            types = sorted(df_sidebar["content_type"].dropna().unique())
+
+            types = sorted(df_all["content_type"].dropna().unique())
             if st.session_state.selected_type not in types:
                 st.session_state.selected_type = types[0] if types else None
-            st.session_state.selected_type = st.selectbox("Content type", types, index=types.index(st.session_state.selected_type))
+            st.session_state.selected_type = st.selectbox(
+                "Content type", types,
+                index=types.index(st.session_state.selected_type)
+            )
             st.session_state.op_route = st.toggle("📍 Alleen op route", value=st.session_state.op_route)
 
             st.markdown("### 🚚 Routeselectie")
             try:
                 df_routes_full = get_df_routes()
-
                 if not df_routes_full.empty:
                     def _parse(loc):
                         try: return tuple(map(float, loc.split(",")))
                         except: return (None, None)
 
-                    df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(lambda loc: pd.Series(_parse(loc)))
+                    df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
+                        lambda loc: pd.Series(_parse(loc))
+                    )
 
                     if "routes_cache" not in st.session_state:
                         st.session_state["routes_cache"] = df_routes_full
@@ -153,21 +163,6 @@ with st.sidebar:
                     st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
             except Exception as e:
                 st.error(f"❌ Fout bij ophalen van routes: {e}")
-
-    elif sidebar_tab == "KPI's":
-        st.subheader("📊 KPI's")
-        try:
-            df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers where datum >= current_date")
-            log_counts = df_logboek["gebruiker"].value_counts()
-            delft_count = log_counts.get("Delft", 0)
-            denhaag_count = log_counts.get("Den Haag", 0)
-        except:
-            delft_count = denhaag_count = 0
-
-        df_all = get_df_sidebar() if "df_sidebar" not in locals() else df_sidebar
-        st.metric("📦 Totaal containers", len(df_all))
-        st.metric("📊 Vulgraad ≥ 80%", (df_all["fill_level"] >= 80).sum())
-        st.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
 
 
 
