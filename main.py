@@ -112,29 +112,27 @@ with st.sidebar:
     df_sidebar = get_df_sidebar()
 
     if rol == "Gebruiker":
-        # Alleen content_type als we in Dashboard zitten
+        # ─── Alleen content_type in Dashboard ───────────────────────
         if pagina == "📊 Dashboard":
             types = sorted(df_sidebar["content_type"].dropna().unique())
-            all_opts = ["Alle"] + types
-            sel_type = st.selectbox(
+            options = ["Alle"] + types
+            st.selectbox(
                 "🔎 Content type filter",
-                options=all_opts,
-                index=0,
+                options=options,
+                key="content_type_filter",
                 help="Selecteer één type (of 'Alle' voor geen filter)."
             )
-            st.session_state.selected_type = None if sel_type == "Alle" else sel_type
 
-        # Alleen routes als we in Kaartweergave zitten
+        # ─── Alleen routes in Kaartweergave ───────────────────────
         elif pagina == "🗺️ Kaartweergave":
             df_routes_full     = get_df_routes()
-            beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-            sel_routes = st.multiselect(
+            routes             = sorted(df_routes_full["route_omschrijving"].dropna().unique())
+            st.multiselect(
                 "📍 Routeselectie",
-                options=beschikbare_routes,
-                default=st.session_state.geselecteerde_routes,
+                options=routes,
+                key="route_filter",
                 help="Selecteer één of meerdere routes."
             )
-            st.session_state.geselecteerde_routes = sel_routes
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
@@ -204,6 +202,13 @@ with st.sidebar:
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 if pagina == "📊 Dashboard":
+    df = df_sidebar.copy()
+
+    # 1) content_type filter
+    sel_type = st.session_state.get("content_type_filter", "Alle")
+    if sel_type != "Alle":
+        df = df[df["content_type"] == sel_type]
+
     # ───── KPI BEREKENING OP VOLLEDIGE DATA ─────────────────
     df_all = df_sidebar.copy()
     df_all["fill_level"] = pd.to_numeric(df_all["fill_level"], errors="coerce")
@@ -322,7 +327,16 @@ if pagina == "📊 Dashboard":
 
 # ─── TAB 2: KAART ─────────────────────────────────
 elif pagina == "🗺️ Kaartweergave":
-    st.subheader("🗺️ Containerkaart")
+    df_map = get_df_containers()  # of je eigen basis‐df
+    sel_routes = st.session_state.get("route_filter", [])  # lijst, default []
+
+    if sel_routes:
+        df_routes_full = get_df_routes()
+        # container_namen die onder de geselecteerde routes vallen
+        names_on_routes = df_routes_full[
+            df_routes_full["route_omschrijving"].isin(sel_routes)
+        ]["container_name"].unique()
+        df_map = df_map[df_map["container_name"].isin(names_on_routes)]
 
     @st.cache_data(ttl=300)
     def load_routes_for_map():
