@@ -128,19 +128,19 @@ with st.sidebar:
         # Content type filter as checkboxes in an expander
         types = sorted(df_sidebar["content_type"].dropna().unique())
         if "selected_types" not in st.session_state:
-            # Default to all types selected
-            st.session_state.selected_types = types.copy()
-        with st.expander("Content types", expanded=True):
-            selected_types = []
-            for t in types:
-                checked = st.checkbox(
-                    label=t,
-                    value=(t in st.session_state.selected_types),
-                    key=f"cb_type_{t}"
-                )
-                if checked:
-                    selected_types.append(t)
-            st.session_state.selected_types = selected_types
+    # Default to only 'GFX' selected
+    st.session_state.selected_types = ["GFX"] if "GFX" in types else []
+    with st.expander("Content types", expanded=True):
+        selected_types = []
+        for t in types:
+            checked = st.checkbox(
+                label=t,
+                value=(t in st.session_state.selected_types),
+                key=f"cb_type_{t}"
+            )
+            if checked:
+                selected_types.append(t)
+        st.session_state.selected_types = selected_types
 
         st.markdown("### 🚚 Routeselectie")
         try:
