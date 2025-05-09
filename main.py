@@ -112,29 +112,43 @@ with st.sidebar:
     df_sidebar = get_df_sidebar()
 
     if rol == "Gebruiker":
-        # Alleen content_type als we in Dashboard zitten
+        # Alleen content_type-widget in Dashboard
         if pagina == "📊 Dashboard":
             types = sorted(df_sidebar["content_type"].dropna().unique())
             all_opts = ["Alle"] + types
+
+            # Bepaal index uit sessiestate (valt terug op 0 = "Alle")
+            current = st.session_state.get("selected_type", "Alle")
+            idx = all_opts.index(current) if current in all_opts else 0
+
             sel_type = st.selectbox(
                 "🔎 Content type filter",
                 options=all_opts,
-                index=0,
+                index=idx,
+                key="selected_type",
                 help="Selecteer één type (of 'Alle' voor geen filter)."
             )
-            st.session_state.selected_type = None if sel_type == "Alle" else sel_type
+            # st.session_state.selected_type wordt automatisch bijgewerkt
+            # None betekent: geen filter
+            if sel_type == "Alle":
+                st.session_state.selected_type = None
 
-        # Alleen routes als we in Kaartweergave zitten
+        # Alleen route-widget in Kaartweergave
         elif pagina == "🗺️ Kaartweergave":
             df_routes_full     = get_df_routes()
             beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
+
+            # Haal vorige selectie op (leeg list betekent niks geselecteerd)
+            default = st.session_state.get("geselecteerde_routes", [])
+
             sel_routes = st.multiselect(
                 "📍 Routeselectie",
                 options=beschikbare_routes,
-                default=st.session_state.geselecteerde_routes,
+                default=default,
+                key="geselecteerde_routes",
                 help="Selecteer één of meerdere routes."
             )
-            st.session_state.geselecteerde_routes = sel_routes
+            # st.session_state.geselecteerde_routes wordt automatisch bijgewerkt
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
