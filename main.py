@@ -105,12 +105,13 @@ def init_session_state():
 
 init_session_state()
 
-# ─── SIDEBAR ─────────────────────────────────────
+## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
+    # Clear cache if needed
     try:
         if st.session_state.refresh_needed:
             st.cache_data.clear()
@@ -121,36 +122,45 @@ with st.sidebar:
         st.error(f"❌ Fout bij laden van containerdata: {e}")
         df_sidebar = pd.DataFrame()
 
+    # ─── Gebruikerscherm Filters ─────────────────
     if rol == "Gebruiker":
         st.markdown("### 🔎 Filters")
+        # Content type filter as checkboxes in an expander
         types = sorted(df_sidebar["content_type"].dropna().unique())
-        if st.session_state.selected_type not in types:
-            st.session_state.selected_type = types[0] if types else None
-        st.session_state.selected_type = st.selectbox(
-            "Content type", types,
-            index=types.index(st.session_state.selected_type) if types else 0
-        )
+        if "selected_types" not in st.session_state:
+            # Default to all types selected
+            st.session_state.selected_types = types.copy()
+        with st.expander("Content types", expanded=True):
+            selected_types = []
+            for t in types:
+                checked = st.checkbox(
+                    label=t,
+                    value=(t in st.session_state.selected_types),
+                    key=f"cb_type_{t}"
+                )
+                if checked:
+                    selected_types.append(t)
+            st.session_state.selected_types = selected_types
 
         st.markdown("### 🚚 Routeselectie")
         try:
             df_routes_full = get_df_routes()
             if not df_routes_full.empty:
-                def _parse(loc):
-                    try: return tuple(map(float, loc.split(",")))
-                    except: return (None, None)
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc))
-                )
-                if "routes_cache" not in st.session_state:
-                    st.session_state["routes_cache"] = df_routes_full
                 beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-                st.session_state.geselecteerde_routes = st.multiselect(
-                    label="Selecteer routes:",
-                    options=beschikbare_routes,
-                    default=st.session_state.get("geselecteerde_routes", []),
-                    help="Selecteer één of meerdere routes:",
-                    placeholder="Klik om routes te selecteren"
-                )
+                if "geselecteerde_routes" not in st.session_state:
+                    st.session_state.geselecteerde_routes = []
+                # Routes filter as checkboxes in an expander
+                with st.expander("Selecteer routes", expanded=False):
+                    geselecteerde = []
+                    for route in beschikbare_routes:
+                        checked = st.checkbox(
+                            label=route,
+                            value=(route in st.session_state.geselecteerde_routes),
+                            key=f"cb_route_{route}"
+                        )
+                        if checked:
+                            geselecteerde.append(route)
+                    st.session_state.geselecteerde_routes = geselecteerde
             else:
                 st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
         except Exception as e:
