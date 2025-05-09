@@ -109,32 +109,38 @@ with st.sidebar:
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
-    df_sidebar = get_df_sidebar()
-
     if rol == "Gebruiker":
-        # Alleen content_type als we in Dashboard zitten
         if pagina == "📊 Dashboard":
+            # --- Content type filter (én key voor state) ---
+            df_sidebar = get_df_sidebar()
             types = sorted(df_sidebar["content_type"].dropna().unique())
-            all_opts = ["Alle"] + types
-            sel_type = st.selectbox(
+            options = ["Alle"] + types
+            # haal huidige staat op of val terug op "Alle"
+            current = st.session_state.get("filter_content_type", "Alle")
+            idx = options.index(current) if current in options else 0
+
+            sel = st.selectbox(
                 "🔎 Content type filter",
-                options=all_opts,
-                index=0,
+                options=options,
+                index=idx,
+                key="filter_content_type",
                 help="Selecteer één type (of 'Alle' voor geen filter)."
             )
-            st.session_state.selected_type = None if sel_type == "Alle" else sel_type
+            # st.session_state["filter_content_type"] = sel wordt automatisch gezet
 
-        # Alleen routes als we in Kaartweergave zitten
         elif pagina == "🗺️ Kaartweergave":
-            df_routes_full     = get_df_routes()
-            beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-            sel_routes = st.multiselect(
+            # --- Route filter ---
+            df_routes = get_df_routes()
+            routes = sorted(df_routes["route_omschrijving"].dropna().unique())
+            default = st.session_state.get("filter_routes", [])
+            sel = st.multiselect(
                 "📍 Routeselectie",
-                options=beschikbare_routes,
-                default=st.session_state.geselecteerde_routes,
+                options=routes,
+                default=default,
+                key="filter_routes",
                 help="Selecteer één of meerdere routes."
             )
-            st.session_state.geselecteerde_routes = sel_routes
+            # st.session_state["filter_routes"] = sel automatisch
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
@@ -204,22 +210,21 @@ with st.sidebar:
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 if pagina == "📊 Dashboard":
-    # ───── KPI BEREKENING OP VOLLEDIGE DATA ─────────────────
-    df_all = df_sidebar.copy()
-    df_all["fill_level"] = pd.to_numeric(df_all["fill_level"], errors="coerce")
+    df = get_df_sidebar().copy()
 
-    # KPI’s over alle containers, ongeacht filters
+    # 1) Pas content_type-filter toe uit state
+    sel_type = st.session_state.get("filter_content_type", "Alle")
+    if sel_type != "Alle":
+        df = df[df["content_type"] == sel_type]
+
+    # 2) KPI’s altijd over de volledige dataset
+    df_all = get_df_sidebar().copy()
+    df_all["fill_level"] = pd.to_numeric(df_all["fill_level"], errors="coerce")
     totaal = len(df_all)
-    vol80 = (df_all["fill_level"] >= 80).sum()
-    try:
-        df_log = run_query(
-            "SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum>=current_date"
-        )
-        counts = df_log["gebruiker"].value_counts().to_dict()
-        d_count = counts.get("Delft", 0)
-        h_count = counts.get("Den Haag", 0)
-    except:
-        d_count = h_count = 0
+    vol80  = (df_all["fill_level"] >= 80).sum()
+    df_log = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum>=current_date")
+    counts = df_log["gebruiker"].value_counts().to_dict()
+    d_count = counts.get("Delft", 0); h_count = counts.get("Den Haag", 0)
 
     k1, k2, k3 = st.columns(3)
     k1.metric("📦 Totaal containers", totaal)
@@ -324,133 +329,170 @@ if pagina == "📊 Dashboard":
 elif pagina == "🗺️ Kaartweergave":
     st.subheader("🗺️ Containerkaart")
 
+    # ─── CACHED LOADER FUNCTIONS ─────────────────────────
     @st.cache_data(ttl=300)
     def load_routes_for_map():
         df = run_query("""
-            SELECT r.route_omschrijving, r.omschrijving AS container_name,
-                   c.container_location, c.content_type, c.fill_level, c.address, c.city
+            SELECT r.route_omschrijving,
+                   r.omschrijving   AS container_name,
+                   c.container_location,
+                   c.content_type,
+                   c.fill_level,
+                   c.address,
+                   c.city
             FROM apb_routes r
-            JOIN apb_containers c ON r.omschrijving = c.container_name
+            JOIN apb_containers c
+              ON r.omschrijving = c.container_name
             WHERE c.container_location IS NOT NULL
         """)
-        df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
+        df[["r_lat", "r_lon"]] = (
+            df["container_location"]
+              .str.split(",", expand=True)
+              .astype(float)
+        )
         return df
 
     @st.cache_data(ttl=300)
     def load_all_containers():
         df = run_query("""
-            SELECT container_name, container_location, content_type, fill_level, address, city
+            SELECT container_name,
+                   container_location,
+                   content_type,
+                   fill_level,
+                   address,
+                   city
             FROM apb_containers
         """)
-        df[["lat", "lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
+        df[["lat", "lon"]] = (
+            df["container_location"]
+              .str.split(",", expand=True)
+              .astype(float)
+        )
         return df
 
-    df_routes = load_routes_for_map()
+    # ─── DATA INladen ───────────────────────────────────
+    df_routes    = load_routes_for_map()
     df_containers = load_all_containers()
 
-    sel_routes = st.session_state.geselecteerde_routes
-    sel_names = st.session_state.extra_meegegeven_tijdelijk
-
-    df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
-
-    def find_nearest_route(r):
-        if pd.isna(r["lat"]) or pd.isna(r["lon"]):
-            return None
-        radius = 0.15
-        while True:
-            matches = [
-                rp["route_omschrijving"] for _, rp in df_routes.iterrows()
-                if rp["content_type"] == r["content_type"]
-                and geodesic((r["lat"], r["lon"]), (rp["r_lat"], rp["r_lon"])).km <= radius
-            ]
-            if matches:
-                return Counter(matches).most_common(1)[0][0]
-            radius += 0.1
-            if radius > 5:
-                return None
-
-    if not df_hand.empty:
-        df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
+    # ─── FILTER OP BASIS VAN SELECTIE ───────────────────
+    sel_routes = st.session_state.get("filter_routes", [])  # vanuit sidebar widget
+    if sel_routes:
+        df_plot = df_routes[df_routes["route_omschrijving"].isin(sel_routes)].copy()
     else:
-        df_hand["dichtstbijzijnde_route"] = None
+        df_plot = pd.DataFrame(columns=df_routes.columns)
 
+    # ─── KLEURMAPPING PER ROUTE ─────────────────────────
     kleuren = [
-        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
-        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+        [255, 0, 0], [0, 100, 255], [0, 255, 0],
+        [255, 165, 0], [160, 32, 240], [0, 206, 209],
+        [255, 105, 180], [255, 255, 0], [139, 69, 19],
+        [0, 128, 128]
     ]
-    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
+    kleur_map = {
+        route: kleuren[i % len(kleuren)] + [175]
+        for i, route in enumerate(sel_routes)
+    }
 
+    # ─── LAYERS VOOR ROUTE-CONTAINERS ───────────────────
     layers = []
     for route in sel_routes:
-        df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
-        df_r["tooltip_label"] = df_r.apply(
-            lambda row: f"""
-                <b>🧺 {row['container_name']}</b><br>
-                Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['route_omschrijving'] or "—"}<br>
-                Locatie: {row['address']}, {row['city']}
-            """, axis=1
+        df_r = df_plot[df_plot["route_omschrijving"] == route].copy()
+        if df_r.empty:
+            continue
+        df_r["tooltip"] = df_r.apply(
+            lambda row: f"<b>🧺 {row['container_name']}</b><br>"
+                        f"Type: {row['content_type']}<br>"
+                        f"Vulgraad: {row['fill_level']}%<br>"
+                        f"Route: {row['route_omschrijving']}<br>"
+                        f"Locatie: {row['address']}, {row['city']}",
+            axis=1
         )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
             data=df_r,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
-            radiusMinPixels=4,
-            radiusMaxPixels=6,
+            radiusMinPixels=6,
+            radiusMaxPixels=10,
             pickable=True,
-            get_line_color=[0, 0, 220],
-            line_width_min_pixels=0
+            get_line_color=[0, 0, 0],
+            line_width_min_pixels=1
         ))
 
+    # ─── HANDMATIG GESELECTEERDE CONTAINERS ─────────────
+    sel_names = st.session_state.get("extra_meegegeven_tijdelijk", [])
+    df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
+
+    # bepaal dichtstbijzijnde route voor handmatige selectie
+    def find_nearest(r):
+        if pd.isna(r["lat"]) or pd.isna(r["lon"]):
+            return None
+        radius = 0.15
+        while radius <= 5:
+            nearby = df_routes[
+                (df_routes["content_type"] == r["content_type"]) &
+                (df_routes.apply(
+                    lambda rp: geodesic(
+                        (r["lat"], r["lon"]),
+                        (rp["r_lat"], rp["r_lon"])
+                    ).km <= radius, axis=1))
+            ]
+            if not nearby.empty:
+                return Counter(nearby["route_omschrijving"]).most_common(1)[0][0]
+            radius += 0.1
+        return None
+
     if not df_hand.empty:
-        df_hand["tooltip_label"] = df_hand.apply(
-            lambda row: f"""
-                <b>🖤 {row['container_name']}</b><br>
-                Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['dichtstbijzijnde_route'] or "—"}<br>
-                Locatie: {row['address']}, {row['city']}
-            """, axis=1
+        df_hand["nearest_route"] = df_hand.apply(find_nearest, axis=1)
+        df_hand["tooltip"] = df_hand.apply(
+            lambda row: f"<b>🖤 {row['container_name']}</b><br>"
+                        f"Type: {row['content_type']}<br>"
+                        f"Vulgraad: {row['fill_level']}%<br>"
+                        f"Dichtstbijzijnde route: {row['nearest_route'] or '—'}<br>"
+                        f"Locatie: {row['address']}, {row['city']}",
+            axis=1
         )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
             data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
-            get_fill_color='[0, 0, 0, 220]',
-            radiusMinPixels=5,
-            radiusMaxPixels=10,
+            get_fill_color=[0, 0, 0, 220],
+            radiusMinPixels=8,
+            radiusMaxPixels=12,
             pickable=True
         ))
 
-    tooltip = {
-        "html": "{tooltip_label}",
-        "style": {"backgroundColor": "steelblue", "color": "white"}
-    }
-
+    # ─── INITIAL VIEW ─────────────────────────────────────
     if not df_containers.empty:
         midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
     else:
         midpoint = [52.0, 4.3]
 
+    # ─── RENDEREN KAART ───────────────────────────────────
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=pdk.ViewState(
-            latitude=midpoint[0], longitude=midpoint[1],
-            zoom=11, pitch=0
+            latitude=midpoint[0],
+            longitude=midpoint[1],
+            zoom=11,
+            pitch=0
         ),
-        layers=layers, tooltip=tooltip
+        layers=layers,
+        tooltip={"html": "{tooltip}", "style": {"backgroundColor":"steelblue","color":"white"}}
     ))
 
+    # ─── TONEN HANDMATIG GESELECTEERDE DATA ─────────────
     if not df_hand.empty:
         st.markdown("### 📋 Handmatig geselecteerde containers")
-        st.dataframe(df_hand[[
-            "container_name", "address", "city", "content_type",
-            "fill_level", "dichtstbijzijnde_route"
-        ]], use_container_width=True)
+        st.dataframe(
+            df_hand[[
+                "container_name", "address", "city",
+                "content_type", "fill_level", "nearest_route"
+            ]],
+            use_container_width=True
+        )
     else:
-        st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
+        st.info("📋 Nog geen containers handmatig geselecteerd.")
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
 elif pagina == "📋 Route-status":
