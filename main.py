@@ -137,16 +137,27 @@ with st.sidebar:
             st.error(f"❌ Fout bij laden van containerdata: {e}")
             types = []
 
-        # content-type dropdown
-        if types:
-            if "selected_type" not in st.session_state:
-                st.session_state.selected_type = types[0]
+        # --- Content-type dropdown -------------------------------------------------
+        if types:  # er zijn opties
+            # 1. Bepaal huidige waarde (kan missing zijn)
+            huidige = st.session_state.get("selected_type")
 
-            st.session_state.selected_type = st.selectbox(
+            # 2. Als huidige waarde ongeldig is → neem eerste optie
+            if huidige not in types:
+                huidige = types[0]
+                st.session_state.selected_type = huidige
+
+            # 3. Toon dropdown met correct index
+            keuze = st.selectbox(
                 "Content type",
                 types,
-                index=types.index(st.session_state.selected_type)
+                index=types.index(huidige),
+                key="content_type_select"
             )
+            st.session_state.selected_type = keuze
+        else:
+            st.info("⚠️ Geen content-types beschikbaar.")
+            st.session_state.selected_type = None
 
         # toggle op-route
         st.session_state.op_route = st.toggle("📍 Alleen op route", value=st.session_state.op_route)
