@@ -120,7 +120,7 @@ with st.sidebar:
     st.markdown(f"**Actieve gebruiker:** `{st.session_state.gebruiker}`")
     if st.button("🔄 Wissel gebruiker"):
         del st.session_state["gebruiker"]   # reset → dialoog verschijnt opnieuw
-        st.experimental_rerun()
+        st.rerun()
 
     # rol-selectie
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"], key="rol_select")
