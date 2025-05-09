@@ -95,68 +95,57 @@ def init_session_state():
 init_session_state()
 
 # ─── SIDEBAR ─────────────────────────────────────
-# ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
-    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
 
+    # Rol kiezen
+    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"], key="rol")
+
+    # Als refresh nodig is (bijv. na upload)
+    if st.session_state.refresh_needed:
+        st.cache_data.clear()
+        st.session_state.refresh_needed = False
+
+    # Data inladen
     try:
-        if st.session_state.refresh_needed:
-            st.cache_data.clear()
-            st.session_state.refresh_needed = False
-
         df_sidebar = get_df_sidebar()
     except Exception as e:
         st.error(f"❌ Fout bij laden van containerdata: {e}")
         df_sidebar = pd.DataFrame()
 
-    if rol == "Gebruiker":
-        gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"])
-        st.session_state.gebruiker = gebruiker
+    if st.session_state.rol == "Gebruiker":
+        # Gebruiker kiezen
+        st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"], key="gebruiker")
 
+        # Filters
         st.markdown("### 🔎 Filters")
         types = sorted(df_sidebar["content_type"].dropna().unique())
+        if types:
+            st.selectbox("Content type", types, key="selected_type")
+        st.toggle("📍 Alleen op route", key="op_route")
 
-        if "selected_type" not in st.session_state or st.session_state.selected_type not in types:
-            st.session_state.selected_type = types[0] if types else None
-
-        selected_type = st.selectbox(
-            "Content type",
-            types,
-            index=types.index(st.session_state.selected_type),
-            key="selected_type"  # sleutel moet exact overeenkomen
-        )
-
+        # Routeselectie
         st.markdown("### 🚚 Routeselectie")
         try:
             df_routes_full = get_df_routes()
-
             if not df_routes_full.empty:
-                def _parse(loc):
-                    try: return tuple(map(float, loc.split(",")))
-                    except: return (None, None)
-
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc)))
-
+                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].str.split(",", expand=True).astype(float)
                 if "routes_cache" not in st.session_state:
-                    st.session_state["routes_cache"] = df_routes_full
+                    st.session_state.routes_cache = df_routes_full
 
                 beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-
-                st.session_state["geselecteerde_routes"] = st.multiselect(
-                    label="📍 Selecteer één of meerdere routes:",
+                st.multiselect(
+                    "📍 Selecteer één of meerdere routes:",
                     options=beschikbare_routes,
                     default=st.session_state.get("geselecteerde_routes", []),
-                    key="filter_routes",
-                    placeholder="Klik om routes te selecteren (blijft geselecteerd)",
+                    key="geselecteerde_routes"
                 )
             else:
                 st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
-    elif rol == "Upload":
+    elif st.session_state.rol == "Upload":
         st.markdown("### 📄 Upload bestanden")
 
         file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
@@ -175,9 +164,7 @@ with st.sidebar:
                     (df1['on_hold'] == 'No')
                 ].copy()
 
-                df1["content_type"] = df1["content_type"].apply(
-                    lambda x: "Glas" if "glass" in str(x).lower() else x)
-
+                df1["content_type"] = df1["content_type"].apply(lambda x: "Glas" if "glass" in str(x).lower() else x)
                 df1["combinatietelling"] = df1.groupby(["location_code", "content_type"])["content_type"].transform("count")
                 df1["gemiddeldevulgraad"] = df1.groupby(["location_code", "content_type"])["fill_level"].transform("mean")
                 df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"].values).map({True: "Ja", False: "Nee"})
@@ -207,7 +194,7 @@ with st.sidebar:
 
                 df_routes_full = get_df_routes()
                 df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].str.split(",", expand=True).astype(float)
-                st.session_state["routes_cache"] = df_routes_full
+                st.session_state.routes_cache = df_routes_full
 
                 aantal_volle_bakken = int((df1["fill_level"] >= 80).sum())
                 vandaag = datetime.now().date()
@@ -225,6 +212,7 @@ with st.sidebar:
 
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+
 
 # ─── TABS ─────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
