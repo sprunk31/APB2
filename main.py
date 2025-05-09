@@ -94,7 +94,7 @@ def init_session_state():
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
-        "selected_types": [],
+        "selected_type": "GFX",      # <-- standaard op GFX
         "gebruiker": None
     }
     for k, v in defaults.items():
@@ -119,15 +119,14 @@ with st.sidebar:
             all_opts = ["Alle"] + types
 
             # 2) Haal de vorige keuze op, of val terug op "Alle"
-            default = st.session_state.get("selected_type") or "Alle"
+            default = st.session_state.get("selected_type") or "GFX"
 
             # 3) Maak je selectbox met vaste key en value
             sel_type = st.selectbox(
                 "🔎 Content type filter",
-                options=all_opts,
-                value=default,  # gegarandeerd in all_opts
-                key="selected_type",  # Streamlit bewaart deze keuze automatisch
-                help="Selecteer één type (of 'Alle' voor geen filter)."
+                options=types,
+                key="selected_type",
+                help="Selecteer één content type (standaard GFX)."
             )
 
             # 4) Pas je filter toe (gebruik de raw string uit state)
