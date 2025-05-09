@@ -11,7 +11,7 @@ from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
 
-# ─── LOGIN ───────────────────────────────────────
+## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
