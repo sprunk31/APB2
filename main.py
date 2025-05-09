@@ -282,9 +282,9 @@ with tab1:
     k3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
 
     # Filters
+    # Filter zó dat je enkel containers met oproute == 'Nee' ziet
     df = df[df["content_type"].isin(st.session_state.selected_types)]
-    if st.session_state.geselecteerde_routes:
-         df = df[df["oproute"] == ("Ja" if st.session_state.op_route else "Nee")]
+    df = df[df["oproute"] == "Nee"]
 
     zichtbaar = [
         "container_name", "address", "city", "location_code", "content_type",
