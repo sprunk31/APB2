@@ -144,6 +144,69 @@ with st.sidebar:
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
+    elif rol == "Upload":
+        st.markdown("### 📤 Upload bestanden")
+        file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
+        file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
+
+        if file1 and file2:
+            try:
+                df1 = pd.read_excel(file1)
+                df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
+                df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
+                df2 = pd.read_excel(file2)
+                df1 = df1[(df1['operational_state'] == 'In use') & (df1['status'] == 'In use') & (
+                            df1['on_hold'] == 'No')].copy()
+                df1["content_type"] = df1["content_type"].apply(lambda x: "Glas" if "glass" in str(x).lower() else x)
+                df1['combinatietelling'] = df1.groupby(['location_code', 'content_type'])['content_type'].transform(
+                    'count')
+                df1['gemiddeldevulgraad'] = df1.groupby(['location_code', 'content_type'])['fill_level'].transform(
+                    'mean')
+                df1['oproute'] = df1['container_name'].isin(df2['Omschrijving'].values).map({True: 'Ja', False: 'Nee'})
+                df1['extra_meegegeven'] = False
+
+                # Verwijder alle bestaande rijen, maar behoud structuur
+                execute_query("DELETE FROM apb_containers")
+
+                # Voeg daarna nieuwe records toe
+                df1.to_sql("apb_containers", get_engine(), if_exists="append", index=False)
+
+                df2 = df2.rename(columns={
+                    "Route Omschrijving": "route_omschrijving",
+                    "Omschrijving": "omschrijving",
+                    "Datum": "datum"
+                })
+                # Verwijder alle bestaande rijen, behoud structuur
+                execute_query("DELETE FROM apb_routes")
+
+                # Voeg nieuwe records toe
+                df2[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates().to_sql(
+                    "apb_routes", get_engine(), if_exists="append", index=False
+                )
+
+                df_routes_full = run_query("""
+                            SELECT r.route_omschrijving, r.omschrijving AS container_name,
+                                   c.container_location, c.content_type
+                            FROM apb_routes r
+                            JOIN apb_containers c ON r.omschrijving = c.container_name
+                            WHERE c.container_location IS NOT NULL
+                        """)
+
+
+                def _parse(loc):
+                    try:
+                        return tuple(map(float, loc.split(",")))
+                    except:
+                        return (None, None)
+
+
+                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
+                    lambda loc: pd.Series(_parse(loc)))
+                st.session_state["routes_cache"] = df_routes_full
+                st.success("✅ Gegevens succesvol opgeslagen in de database.")
+            except Exception as e:
+                st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+
 
 # ─── TABS ─────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
