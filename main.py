@@ -402,20 +402,11 @@ with tab2:
     else:
         df_hand["dichtstbijzijnde_route"] = None
 
-    import matplotlib.cm as cm
-    import matplotlib.colors as mcolors
-
-
-    def generate_colormap(routes, alpha=200):
-        cmap = cm.get_cmap('tab20', len(routes))  # tab20 of 'hsv' of 'Set3'
-        kleur_map = {}
-        for i, route in enumerate(routes):
-            r, g, b, _ = cmap(i)
-            kleur_map[route] = [int(r * 255), int(g * 255), int(b * 255), alpha]
-        return kleur_map
-
-
-    kleur_map = generate_colormap(sel_routes)
+    kleuren = [
+        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
+        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+    ]
+    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
 
     layers = []
     for route in sel_routes:
