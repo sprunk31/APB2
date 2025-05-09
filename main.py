@@ -116,18 +116,12 @@ with st.sidebar:
         if pagina == "📊 Dashboard":
             types = sorted(df_sidebar["content_type"].dropna().unique())
             all_opts = ["Alle"] + types
-
-            default = st.session_state.get("selected_type", "Alle")
-            # value=default zorgt ervoor dat precies die string wordt gekozen, ongeacht de volgorde
             sel_type = st.selectbox(
                 "🔎 Content type filter",
                 options=all_opts,
-                value=default,
-                key="selected_type",
+                index=0,
                 help="Selecteer één type (of 'Alle' voor geen filter)."
             )
-
-            # In je state: None voor 'Alle', anders de gekozen type
             st.session_state.selected_type = None if sel_type == "Alle" else sel_type
 
         # Alleen routes als we in Kaartweergave zitten
