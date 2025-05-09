@@ -96,28 +96,35 @@ init_session_state()
 
 # ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 📊 KPI's")
-    try:
-        df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers where datum >= current_date")
-        log_counts = df_logboek["gebruiker"].value_counts()
-        delft_count = log_counts.get("Delft", 0)
-        denhaag_count = log_counts.get("Den Haag", 0)
-    except:
-        delft_count = denhaag_count = 0
+    with st.expander("📊 KPI-overzicht", expanded=True):
+        try:
+            df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers where datum >= current_date")
+            log_counts = df_logboek["gebruiker"].value_counts()
+            delft_count = log_counts.get("Delft", 0)
+            denhaag_count = log_counts.get("Den Haag", 0)
+        except:
+            delft_count = denhaag_count = 0
 
-    try:
-        df_all = get_df_sidebar()
-    except:
-        df_all = pd.DataFrame()
+        try:
+            df_all = get_df_sidebar()
+        except:
+            df_all = pd.DataFrame()
 
-    st.metric("📦 Totaal containers", len(df_all))
-    st.metric("📊 Vulgraad ≥ 80%", (df_all["fill_level"] >= 80).sum())
-    st.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
+        # Compacte metric-stijl via captions
+        st.caption("📦 Totaal containers")
+        st.metric(label="", value=len(df_all))
+
+        st.caption("📊 Vulgraad ≥ 80%")
+        st.metric(label="", value=(df_all["fill_level"] >= 80).sum())
+
+        st.caption("🧍 Extra meegegeven (Delft / Den Haag)")
+        st.metric(label="", value=f"{delft_count} / {denhaag_count}")
 
     st.divider()
     st.markdown("### 📂 Menu")
 
     tab = st.radio("Sectie", ["Instellingen", "Upload"], label_visibility="collapsed")
+
 
     if tab == "Instellingen":
         rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
