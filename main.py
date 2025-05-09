@@ -94,7 +94,7 @@ def init_session_state():
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
-        "selected_types": [],
+        "selected_type": "GFX",      # <-- standaard GFX
         "gebruiker": None
     }
     for k, v in defaults.items():
@@ -102,6 +102,7 @@ def init_session_state():
             st.session_state[k] = v
 
 init_session_state()
+
 
 # ─── SIDEBAR: INSTELLINGEN & FILTERS ───────────────────
 with st.sidebar:
@@ -115,11 +116,11 @@ with st.sidebar:
         # Alleen content_type als we in Dashboard zitten
         if pagina == "📊 Dashboard":
             types = sorted(df_sidebar["content_type"].dropna().unique())
-            all_opts = ["Alle"] + types
+
             sel_type = st.selectbox(
                 "🔎 Content type filter",
-                options=all_opts,
-                index=0,
+                options=types,
+                key="selected_type",
                 help="Selecteer één type (of 'Alle' voor geen filter)."
             )
             st.session_state.selected_type = None if sel_type == "Alle" else sel_type
