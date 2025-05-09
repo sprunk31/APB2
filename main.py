@@ -94,7 +94,9 @@ def init_session_state():
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
-        "selected_types": [],
+        # "selected_types": [], # Als dit voor iets anders is, laat het staan.
+                                 # Voor het enkele content type filter gebruiken we 'selected_type'.
+        "selected_type": None,  # Permanente sleutel voor het content type filter
         "gebruiker": None
     }
     for k, v in defaults.items():
@@ -106,43 +108,87 @@ init_session_state()
 # ─── SIDEBAR: INSTELLINGEN & FILTERS ───────────────────
 with st.sidebar:
     st.header("🔧 Instellingen & Filters")
-    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
-    st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
+    # Rol selectie - Streamlit beheert de staat via de impliciete of expliciete sleutel
+    # Je kunt een expliciete sleutel toevoegen als je meer controle wilt of problemen ondervindt.
+    # Voor nu gebruiken we de sleutel zoals in je originele code.
+    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"], key="sidebar_rol_selector")
+    # Key toegevoegd voor duidelijkheid/consistentie
+    # Als je 'sidebar_rol' in init_session_state
+    # hebt, kun je die hier ook gebruiken.
+
+    st.markdown(f"**Ingelogd als:** {st.session_state.get('gebruiker', 'Niet ingesteld')}")
+
+    # Haal de data voor de sidebar filters op
+    # Deze wordt gebruikt in de "Gebruiker" rol sectie
     df_sidebar = get_df_sidebar()
 
     if rol == "Gebruiker":
-        # Alleen content_type als we in Dashboard zitten
+        # Alleen content_type filter als we op het Dashboard zitten
         if pagina == "📊 Dashboard":
+            st.markdown("---")  # Visuele scheiding
+            st.subheader("📊 Dashboard Filters")
             types = sorted(df_sidebar["content_type"].dropna().unique())
-            if types:  # Controleer of er content types zijn
-                sel_type = st.selectbox(
+
+            permanent_key_content_type = "selected_type"
+            widget_key_content_type = "_content_type_filter_widget"
+
+            if types:
+                # "Load" fase: Bepaal de initiële index voor de selectbox
+                current_persisted_value = st.session_state.get(permanent_key_content_type)
+
+                if current_persisted_value in types:
+                    default_index_content = types.index(current_persisted_value)
+                    # Zorg dat de widget key gesynchroniseerd is bij de start als de widget opnieuw wordt gerenderd
+                    if widget_key_content_type not in st.session_state or \
+                            st.session_state[widget_key_content_type] != current_persisted_value:
+                        st.session_state[widget_key_content_type] = current_persisted_value
+                else:
+                    default_index_content = 0  # Val terug op de eerste optie
+                    new_default_value = types[default_index_content]
+                    st.session_state[permanent_key_content_type] = new_default_value
+                    st.session_state[widget_key_content_type] = new_default_value
+
+
+                # Callback functie voor on_change
+                def store_selected_content_type_callback():
+                    st.session_state[permanent_key_content_type] = st.session_state[widget_key_content_type]
+
+
+                st.selectbox(
                     "🔎 Content type filter",
-                    options=types,  # Gebruik direct de unieke types
-                    index=0,        # Selecteer de eerste type als standaard
+                    options=types,
+                    index=default_index_content,
+                    key=widget_key_content_type,
+                    on_change=store_selected_content_type_callback,
                     help="Selecteer een content type om te filteren."
                 )
-                st.session_state.selected_type = sel_type  # Wijs de geselecteerde type direct toe
-            else:
+            else:  # Geen types beschikbaar
                 st.info("ℹ️ Geen content types beschikbaar om te filteren.")
-                st.session_state.selected_type = None # Stel in op None als er geen types zijn
+                st.session_state[permanent_key_content_type] = None
 
-        # Alleen routes als we in Kaartweergave zitten
+        # Alleen route selectie als we op de Kaartweergave zitten
         elif pagina == "🗺️ Kaartweergave":
-            df_routes_full     = get_df_routes()
+            st.markdown("---")  # Visuele scheiding
+            st.subheader("🗺️ Kaart Filters")
+            df_routes_full = get_df_routes()  # Haal de volledige route data op
             beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-            sel_routes = st.multiselect(
+
+            # De state wordt direct beheerd via st.session_state.geselecteerde_routes
+            # De 'default' parameter leest hieruit, en de waarde wordt direct teruggeschreven.
+            selected_routes_from_widget = st.multiselect(
                 "📍 Routeselectie",
                 options=beschikbare_routes,
-                default=st.session_state.geselecteerde_routes,
+                default=st.session_state.get("geselecteerde_routes", []),  # Haal default uit session state
                 help="Selecteer één of meerdere routes."
             )
-            st.session_state.geselecteerde_routes = sel_routes
+            st.session_state.geselecteerde_routes = selected_routes_from_widget  # Sla direct op in session state
 
-    elif rol == "Upload":
-        st.markdown("### 📤 Upload bestanden")
-        file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
-        file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
+        elif rol == "Upload":
+            st.markdown("---")  # Visuele scheiding
+            st.markdown("### 📤 Upload bestanden")
+            file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
+            file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
         if file1 and file2:
             try:
                 df1 = pd.read_excel(file1)
@@ -233,7 +279,8 @@ if pagina == "📊 Dashboard":
     df = df_sidebar.copy()
 
     # 1) Filter op content_type
-    sel_type = st.session_state.selected_type
+    # Gebruik de waarde uit de permanente sleutel in session_state
+    sel_type = st.session_state.get("selected_type")  # Gebruik .get() voor veiligheid
     if sel_type:
         df = df[
             (df["content_type"] == sel_type) &
