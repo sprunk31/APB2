@@ -116,15 +116,20 @@ with st.sidebar:
         st.markdown("### 🔎 Filters")
         types = sorted(df_sidebar["content_type"].dropna().unique())
         if types:
-            if st.session_state.selected_type not in types:
-                st.session_state.selected_type = types[0]
+            # Alleen instellen als het nog niet bestaat (geen override)
+            if "selected_type" not in st.session_state or st.session_state.selected_type is None:
+                st.session_state.selected_type = ""
 
-            st.selectbox(
+            st.session_state.selected_type = st.selectbox(
                 "Content type",
-                types,
-                index=types.index(st.session_state.selected_type),
+                options=[""] + types,  # lege optie bovenaan
+                index=([""] + types).index(
+                    st.session_state.selected_type) if st.session_state.selected_type in types else 0,
                 key="selected_type"
             )
+
+            if not st.session_state.selected_type:
+                st.info("ℹ️ Kies een content type om de data te filteren.")
         else:
             st.warning("⚠️ Geen content types beschikbaar in data.")
 
