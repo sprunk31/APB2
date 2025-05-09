@@ -130,7 +130,6 @@ with st.sidebar:
             "Content type", types,
             index=types.index(st.session_state.selected_type) if types else 0
         )
-        st.session_state.op_route = st.toggle("📍 Alleen op route", value=st.session_state.op_route)
 
         st.markdown("### 🚚 Routeselectie")
         try:
