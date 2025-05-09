@@ -129,27 +129,12 @@ with st.sidebar:
     if rol == "Gebruiker":
         gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"])
         st.session_state["gebruiker"] = gebruiker
-
         st.markdown("### 🔎 Filters")
-
         types = sorted(df_sidebar["content_type"].dropna().unique())
         if st.session_state.selected_type not in types:
             st.session_state.selected_type = types[0] if types else None
+        st.session_state.selected_type = st.selectbox("Content type", types, index=types.index(st.session_state.selected_type))
 
-        st.selectbox(
-            "Content type",
-            types,
-            index=types.index(st.session_state.selected_type),
-            key="selected_type",
-            on_change=st.rerun
-        )
-
-        st.toggle(
-            "📍 Alleen op route",
-            value=st.session_state.op_route,
-            key="op_route",
-            on_change=st.rerun
-        )
 
         st.markdown("### 🚚 Routeselectie")
         try:
@@ -157,14 +142,10 @@ with st.sidebar:
 
             if not df_routes_full.empty:
                 def _parse(loc):
-                    try:
-                        return tuple(map(float, loc.split(",")))
-                    except:
-                        return (None, None)
+                    try: return tuple(map(float, loc.split(",")))
+                    except: return (None, None)
 
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc))
-                )
+                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(lambda loc: pd.Series(_parse(loc)))
 
                 if "routes_cache" not in st.session_state:
                     st.session_state["routes_cache"] = df_routes_full
