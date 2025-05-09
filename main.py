@@ -35,10 +35,17 @@ if not st.session_state.authenticated:
 if st.session_state.authenticated and st.session_state.get("gebruiker") is None:
     with st.sidebar:
         st.header("👤 Kies je gebruiker")
-        temp = st.selectbox("Gebruiker", ["Delft", "Den Haag"], key="temp_gebruiker")
+        # Gebruik een key voor de selectbox en haal de waarde op uit session_state
+        if "temp_gebruiker_select" not in st.session_state:
+            st.session_state.temp_gebruiker_select = "Delft"  # Default waarde
+
+        st.selectbox("Gebruiker", ["Delft", "Den Haag"], key="temp_gebruiker_select")
+
         if st.button("Bevestig gebruiker"):
-            st.session_state.gebruiker = temp
-            st.success(f"✅ Ingeset als gebruiker: {temp}")
+            st.session_state.gebruiker = st.session_state.temp_gebruiker_select  # Gebruik de waarde uit session_state
+            st.success(f"✅ Ingeset als gebruiker: {st.session_state.gebruiker}")
+            # st.session_state.selected_type = None # Reset eventueel andere afhankelijke filters
+            # st.session_state.geselecteerde_routes = []
             st.rerun()
     st.stop()
 
@@ -89,33 +96,45 @@ def execute_query(query, params=None):
 st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
 st.title("♻️ Afvalcontainerbeheer Dashboard")
 
+
 # ─── SESSIESTATE INITIALISATIE ───────────────────
 def init_session_state():
     defaults = {
         "op_route": False,
-        "selected_type": None,
+        # "selected_type": None, # Initialisatie hier is prima, maar de sidebar logica zal het verfijnen
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
-        "geselecteerde_routes": [],
+        # "geselecteerde_routes": [], # Idem als selected_type
         "gebruiker": None
+        # Voeg hier de keys toe die je in widgets gebruikt als ze nog niet bestaan
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
+    # Specifieke initialisatie voor filter keys als ze nog niet bestaan
+    if "selected_type" not in st.session_state:
+        st.session_state.selected_type = None  # Zal later worden ingesteld op basis van beschikbare types
+    if "geselecteerde_routes" not in st.session_state:
+        st.session_state.geselecteerde_routes = []
+
 
 init_session_state()
 
 # ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
-    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
+    # Gebruik een key voor de rol selectie
+    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"], key="app_rol")
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
-    try:
-        if st.session_state.refresh_needed:
-            st.cache_data.clear()
-            st.session_state.refresh_needed = False
+    if st.session_state.refresh_needed:
+        st.cache_data.clear()
+        st.session_state.refresh_needed = False
+        # Belangrijk: Na het clearen van de cache, worden df_sidebar en df_routes_full opnieuw geladen.
+        # De selecties moeten mogelijk gevalideerd worden.
 
+    try:
         df_sidebar = get_df_sidebar()
     except Exception as e:
         st.error(f"❌ Fout bij laden van containerdata: {e}")
@@ -123,38 +142,79 @@ with st.sidebar:
 
     if rol == "Gebruiker":
         st.markdown("### 🔎 Filters")
-        types = sorted(df_sidebar["content_type"].dropna().unique())
-        if st.session_state.selected_type not in types:
-            st.session_state.selected_type = types[0] if types else None
-        st.session_state.selected_type = st.selectbox(
-            "Content type", types,
-            index=types.index(st.session_state.selected_type) if types else 0
+
+        # Filter voor content_type
+        available_types = []
+        if not df_sidebar.empty and "content_type" in df_sidebar.columns:
+            available_types = sorted(df_sidebar["content_type"].dropna().unique())
+
+        # Initialiseer of valideer st.session_state.selected_type
+        # Dit zorgt ervoor dat er altijd een geldige selectie is, of None als er geen opties zijn.
+        if not available_types:
+            st.session_state.selected_type = None
+        elif st.session_state.selected_type is None or st.session_state.selected_type not in available_types:
+            st.session_state.selected_type = available_types[0]  # Pak de eerste als default
+
+        # Bepaal de index voor de selectbox op basis van de huidige (gevalideerde) state
+        current_selected_type_index = 0
+        if st.session_state.selected_type and available_types:
+            try:
+                current_selected_type_index = available_types.index(st.session_state.selected_type)
+            except ValueError:  # Mocht selected_type toch niet in available_types zijn
+                st.session_state.selected_type = available_types[0] if available_types else None
+                current_selected_type_index = 0
+
+        st.selectbox(
+            "Content type",
+            options=available_types,
+            index=current_selected_type_index,
+            key="selected_type",  # Gebruik de key om de state direct te beheren
+            # help="Selecteer het type content van de containers." # Optionele help tekst
+            disabled=not available_types  # Schakel uit als er geen types zijn
         )
+        if not available_types:
+            st.caption("Geen content types beschikbaar om te filteren.")
 
         st.markdown("### 🚚 Routeselectie")
         try:
             df_routes_full = get_df_routes()
-            if not df_routes_full.empty:
-                def _parse(loc):
-                    try: return tuple(map(float, loc.split(",")))
-                    except: return (None, None)
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc))
-                )
-                if "routes_cache" not in st.session_state:
-                    st.session_state["routes_cache"] = df_routes_full
-                beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-                st.session_state.geselecteerde_routes = st.multiselect(
-                    label="",
-                    options=beschikbare_routes,
-                    default=st.session_state.get("geselecteerde_routes", []),
-                    help="Selecteer één of meerdere routes:",
-                    placeholder="Klik om routes te selecteren"
-                )
+            available_routes = []
+            if not df_routes_full.empty and "route_omschrijving" in df_routes_full.columns:
+                # ... (je _parse logica voor r_lat, r_lon als die hier nodig is voor 'routes_cache') ...
+                # df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
+                #     lambda loc: pd.Series(_parse(loc) if pd.notna(loc) else (None, None)) # Aangepast voor NaN
+                # )
+                # if "routes_cache" not in st.session_state: # Deze cache is voor de kaart, niet direct voor filteropties
+                #     st.session_state["routes_cache"] = df_routes_full
+
+                available_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
+
+            # Valideer de huidige selectie van routes
+            if not available_routes:
+                st.session_state.geselecteerde_routes = []
             else:
+                # Verwijder routes uit de selectie die niet meer beschikbaar zijn
+                st.session_state.geselecteerde_routes = [
+                    route for route in st.session_state.geselecteerde_routes if route in available_routes
+                ]
+
+            st.multiselect(
+                label="Selecteer routes:",  # Duidelijker label
+                options=available_routes,
+                key="geselecteerde_routes",  # Gebruik de key om de state direct te beheren
+                help="Selecteer één of meerdere routes:",
+                placeholder="Klik om routes te selecteren",
+                disabled=not available_routes  # Schakel uit als er geen routes zijn
+            )
+            if not available_routes and df_routes_full.empty:  # Extra check of de df_routes_full zelf leeg was
                 st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
+            elif not available_routes and not df_routes_full.empty:
+                st.caption("Geen route omschrijvingen beschikbaar in de huidige route data.")
+
+
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
+            st.session_state.geselecteerde_routes = []  # Reset bij fout
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
