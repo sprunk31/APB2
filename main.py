@@ -1,4 +1,5 @@
 import streamlit as st
+st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
 import pandas as pd
 import json
 from sqlalchemy import create_engine, text
@@ -38,7 +39,7 @@ if st.session_state.authenticated and st.session_state.get("gebruiker") is None:
         temp = st.selectbox("Gebruiker", ["Delft", "Den Haag"], key="temp_gebruiker")
         if st.button("Bevestig gebruiker"):
             st.session_state.gebruiker = temp
-            st.success(f"✅ Ingeset als gebruiker: {temp}")
+            st.success(f"✅ Ingesteld als gebruiker: {temp}")
             st.rerun()
     st.stop()
 
@@ -92,7 +93,7 @@ pagina = st.sidebar.radio(
 )
 
 # ─── PAGINA INSTELLINGEN ────────────────────────
-st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
+
 st.title("♻️ Afvalcontainerbeheer Dashboard")
 
 # ─── SESSIESTATE INITIALISATIE ───────────────────
