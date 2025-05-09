@@ -85,6 +85,12 @@ def execute_query(query, params=None):
     with get_engine().begin() as conn:
         conn.execute(text(query), params or {})
 
+# ─── NAVIGATIE VIA SIDEBAR ───────────────────────
+pagina = st.sidebar.radio(
+    "🔖 Ga naar",
+    ["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"]
+)
+
 # ─── PAGINA INSTELLINGEN ────────────────────────
 st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
 st.title("♻️ Afvalcontainerbeheer Dashboard")
@@ -243,11 +249,10 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
 
-# ─── TABS ─────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
+
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
-with tab1:
+if pagina == "📊 Dashboard":
     df = df_sidebar.copy()
     if st.session_state.refresh_needed:
         df = run_query("SELECT * FROM apb_containers")
@@ -348,7 +353,7 @@ with tab1:
     st.dataframe(reeds[zichtbaar], use_container_width=True)
 
 # ─── TAB 2: KAART ─────────────────────────────────
-with tab2:
+elif pagina == "🗺️ Kaartweergave":
     st.subheader("🗺️ Containerkaart")
 
     @st.cache_data(ttl=300)
@@ -480,7 +485,7 @@ with tab2:
         st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
-with tab3:
+elif pagina == "📋 Route-status":
     st.subheader("🚣️ Route status")
     df_routes = run_query("SELECT * FROM public.apb_routes")
     routes = sorted(df_routes["route_omschrijving"].dropna().unique())
