@@ -316,27 +316,33 @@ with tab1:
     tijdelijke = updated[updated["extra_meegegeven"] == True]["container_name"].tolist()
     st.session_state["extra_meegegeven_tijdelijk"] = tijdelijke
 
-    # 6️⃣ Direct loggen
+    # 6️⃣ Direct loggen met fout-afhandeling
+    tijdelijke = st.session_state["extra_meegegeven_tijdelijk"]
     if tijdelijke:
         for naam in tijdelijke:
-            execute_query(
-                "UPDATE apb_containers SET extra_meegegeven=TRUE WHERE TRIM(container_name)=:n",
-                {"n": naam}
-            )
-            execute_query(
-                """INSERT INTO apb_logboek_afvalcontainers
-                   (container_name,address,city,location_code,content_type,fill_level,datum,gebruiker)
-                   VALUES(:a,:b,:c,:d,:e,:f,NOW(),:g)""",
-                {
-                    "a": naam,
-                    "b": df_edit.set_index("container_name").at[naam,"address"],
-                    "c": df_edit.set_index("container_name").at[naam,"city"],
-                    "d": df_edit.set_index("container_name").at[naam,"location_code"],
-                    "e": df_edit.set_index("container_name").at[naam,"content_type"],
-                    "f": df_edit.set_index("container_name").at[naam,"fill_level"],
-                    "g": st.session_state.get("gebruiker")
-                }
-            )
+            try:
+                # Update container
+                execute_query(
+                    "UPDATE apb_containers SET extra_meegegeven = TRUE WHERE TRIM(container_name)=:n",
+                    {"n": naam}
+                )
+                # Log in logboek; pas kolomnamen hier aan als je schema anders is!
+                execute_query(
+                    """INSERT INTO apb_logboek_afvalcontainers
+                       (container_name,address,city,location_code,content_type,fill_level,datum,gebruiker)
+                       VALUES(:a,:b,:c,:d,:e,:f,NOW(),:g)""",
+                    {
+                        "a": naam,
+                        "b": df_edit.set_index("container_name").at[naam, "address"],
+                        "c": df_edit.set_index("container_name").at[naam, "city"],
+                        "d": df_edit.set_index("container_name").at[naam, "location_code"],
+                        "e": df_edit.set_index("container_name").at[naam, "content_type"],
+                        "f": df_edit.set_index("container_name").at[naam, "fill_level"],
+                        "g": st.session_state["gebruiker"]
+                    }
+                )
+            except Exception as e:
+                st.error(f"❌ Fout bij loggen container {naam}: {e}")
         st.session_state["refresh_needed"] = True
         st.rerun()
 
