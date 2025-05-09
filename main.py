@@ -93,7 +93,6 @@ label, .st-cb, .st-af {
 }
 </style>
 """, unsafe_allow_html=True)
-
 st.title("♻️ Afvalcontainerbeheer Dashboard")
 
 # ─── SESSIESTATE INITIALISATIE ─────────────────────────────
@@ -114,80 +113,54 @@ init_session_state()
 
 # ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
-    with st.expander("📊 KPI-overzicht", expanded=True):
+    st.header("🔧 Instellingen")
+    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
+
+    try:
+        if st.session_state.refresh_needed:
+            st.cache_data.clear()
+            st.session_state.refresh_needed = False
+
+        df_sidebar = get_df_sidebar()
+    except Exception as e:
+        st.error(f"❌ Fout bij laden van containerdata: {e}")
+        df_sidebar = pd.DataFrame()
+
+    if rol == "Gebruiker":
+        gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"])
+        st.session_state["gebruiker"] = gebruiker
+        st.markdown("### 🔎 Filters")
+        types = sorted(df_sidebar["content_type"].dropna().unique())
+        if st.session_state.selected_type not in types:
+            st.session_state.selected_type = types[0] if types else None
+        st.session_state.selected_type = st.selectbox("Content type", types, index=types.index(st.session_state.selected_type))
+        st.session_state.op_route = st.toggle("📍 Alleen op route", value=st.session_state.op_route)
+
+        st.markdown("### 🚚 Routeselectie")
         try:
-            df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers where datum >= current_date")
-            log_counts = df_logboek["gebruiker"].value_counts()
-            delft_count = log_counts.get("Delft", 0)
-            denhaag_count = log_counts.get("Den Haag", 0)
-        except:
-            delft_count = denhaag_count = 0
+            df_routes_full = get_df_routes()
 
-        try:
-            df_all = get_df_sidebar()
-        except:
-            df_all = pd.DataFrame()
+            if not df_routes_full.empty:
+                def _parse(loc):
+                    try: return tuple(map(float, loc.split(",")))
+                    except: return (None, None)
 
-        # Compacte metric-stijl via captions
-        st.caption("📦 Totaal containers")
-        st.metric(label="", value=len(df_all))
+                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(lambda loc: pd.Series(_parse(loc)))
 
-        st.caption("📊 Vulgraad ≥ 80%")
-        st.metric(label="", value=(df_all["fill_level"] >= 80).sum())
+                if "routes_cache" not in st.session_state:
+                    st.session_state["routes_cache"] = df_routes_full
 
-        st.caption("🧍 Extra meegegeven (Delft / Den Haag)")
-        st.metric(label="", value=f"{delft_count} / {denhaag_count}")
-
-    st.divider()
-    st.markdown("### 📂 Menu")
-
-    tab = st.radio("Sectie", ["Instellingen", "Upload"], label_visibility="collapsed")
-
-
-    if tab == "Instellingen":
-        rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
-        st.session_state["rol"] = rol
-
-        if rol == "Gebruiker":
-            gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"])
-            st.session_state["gebruiker"] = gebruiker
-            st.markdown("### 🔎 Filters")
-
-            types = sorted(df_all["content_type"].dropna().unique())
-            if st.session_state.selected_type not in types:
-                st.session_state.selected_type = types[0] if types else None
-            st.session_state.selected_type = st.selectbox(
-                "Content type", types,
-                index=types.index(st.session_state.selected_type)
-            )
-            st.session_state.op_route = st.toggle("📍 Alleen op route", value=st.session_state.op_route)
-
-            st.markdown("### 🚚 Routeselectie")
-            try:
-                df_routes_full = get_df_routes()
-                if not df_routes_full.empty:
-                    def _parse(loc):
-                        try: return tuple(map(float, loc.split(",")))
-                        except: return (None, None)
-
-                    df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                        lambda loc: pd.Series(_parse(loc))
-                    )
-
-                    if "routes_cache" not in st.session_state:
-                        st.session_state["routes_cache"] = df_routes_full
-
-                    beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-                    st.session_state.geselecteerde_routes = st.multiselect(
-                        label="📍 Selecteer één of meerdere routes:",
-                        options=beschikbare_routes,
-                        default=st.session_state.get("geselecteerde_routes", []),
-                        placeholder="Klik om routes te selecteren (blijft geselecteerd)",
-                    )
-                else:
-                    st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
-            except Exception as e:
-                st.error(f"❌ Fout bij ophalen van routes: {e}")
+                beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
+                st.session_state.geselecteerde_routes = st.multiselect(
+                    label="📍 Selecteer één of meerdere routes:",
+                    options=beschikbare_routes,
+                    default=st.session_state.get("geselecteerde_routes", []),
+                    placeholder="Klik om routes te selecteren (blijft geselecteerd)",
+                )
+            else:
+                st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
+        except Exception as e:
+            st.error(f"❌ Fout bij ophalen van routes: {e}")
 
 
 
@@ -282,8 +255,7 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
-    df = st.session_state.get("df_sidebar", pd.DataFrame()).copy()
-
+    df = df_sidebar.copy()
     if "refresh_needed" in st.session_state and st.session_state.refresh_needed:
         df = run_query("SELECT * FROM apb_containers")
         st.session_state.refresh_needed = False
