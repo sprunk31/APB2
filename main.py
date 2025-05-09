@@ -134,7 +134,7 @@ with st.sidebar:
         if st.session_state.selected_type not in types:
             st.session_state.selected_type = types[0] if types else None
         st.session_state.selected_type = st.selectbox("Content type", types, index=types.index(st.session_state.selected_type))
-        st.session_state.op_route = st.toggle("📍 Alleen op route", value=st.session_state.op_route)
+
 
         st.markdown("### 🚚 Routeselectie")
         try:
