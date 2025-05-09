@@ -114,29 +114,21 @@ with st.sidebar:
     if rol == "Gebruiker":
         # Alleen content_type als we in Dashboard zitten
         if pagina == "📊 Dashboard":
-            # 1) Bouw je opties
             types = sorted(df_sidebar["content_type"].dropna().unique())
             all_opts = ["Alle"] + types
 
-            # 2) Haal de vorige keuze op, of val terug op "Alle"
-            default = st.session_state.get("selected_type") or "Alle"
-
-            # 3) Maak je selectbox met vaste key en value
+            default = st.session_state.get("selected_type", "Alle")
+            # value=default zorgt ervoor dat precies die string wordt gekozen, ongeacht de volgorde
             sel_type = st.selectbox(
                 "🔎 Content type filter",
                 options=all_opts,
-                value=default,  # gegarandeerd in all_opts
-                key="selected_type",  # Streamlit bewaart deze keuze automatisch
+                value=default,
+                key="selected_type",
                 help="Selecteer één type (of 'Alle' voor geen filter)."
             )
 
-            # 4) Pas je filter toe (gebruik de raw string uit state)
-            if st.session_state.selected_type != "Alle":
-                df = df[
-                    (df["content_type"] == st.session_state.selected_type)
-                    & (df["oproute"] == "Nee")
-                    ]
-
+            # In je state: None voor 'Alle', anders de gekozen type
+            st.session_state.selected_type = None if sel_type == "Alle" else sel_type
 
         # Alleen routes als we in Kaartweergave zitten
         elif pagina == "🗺️ Kaartweergave":
