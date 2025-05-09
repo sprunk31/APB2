@@ -112,15 +112,17 @@ with st.sidebar:
     df_sidebar = get_df_sidebar()
 
     if rol == "Gebruiker":
-        # Content type multiselect
+        # Content type als single-select
         types = sorted(df_sidebar["content_type"].dropna().unique())
-        sel_types = st.multiselect(
+        # Voeg optioneel "Alle" toe als je geen filter wilt
+        all_opts = ["Alle"] + types
+        sel_type = st.selectbox(
             "🔎 Content type filter",
-            options=types,
-            default=st.session_state.selected_types or types,
-            help="Selecteer één of meerdere types (geen selectie = alle types)."
+            options=all_opts,
+            index=0,
+            help="Selecteer één type (of 'Alle' voor geen filter)."
         )
-        st.session_state.selected_types = sel_types
+        st.session_state.selected_type = None if sel_type == "Alle" else sel_type
 
         # Route multiselect
         df_routes_full = get_df_routes()
@@ -203,12 +205,12 @@ with st.sidebar:
 if pagina == "📊 Dashboard":
     df = df_sidebar.copy()
 
-    # Filter content types
-    sel_types = st.session_state.selected_types or []
-    if sel_types:
-        df = df[df["content_type"].isin(sel_types)]
+    # 1) Filter op content_type (één waarde of geen)
+    sel_type = st.session_state.selected_type
+    if sel_type:
+        df = df[df["content_type"] == sel_type]
 
-    # Filter routes
+    # 2) Filter op routes (meerdere waarden of geen)
     sel_routes = st.session_state.geselecteerde_routes or []
     if sel_routes:
         df_routes_full = get_df_routes()
@@ -217,24 +219,25 @@ if pagina == "📊 Dashboard":
         ]["container_name"].unique()
         df = df[df["container_name"].isin(names_on_routes)]
 
+    # 3) Rest van je berekeningen en weergave
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
     df["extra_meegegeven"] = df["extra_meegegeven"].astype(bool)
 
-    # KPI's
+    # KPI’s
     try:
         df_log = run_query(
             "SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum>=current_date"
         )
         counts = df_log["gebruiker"].value_counts().to_dict()
-        d_count = counts.get("Delft",0)
-        h_count = counts.get("Den Haag",0)
+        d_count = counts.get("Delft", 0)
+        h_count = counts.get("Den Haag", 0)
     except:
         d_count = h_count = 0
 
     k1, k2, k3 = st.columns(3)
     k1.metric("📦 Totaal containers", len(df))
-    k2.metric("📊 Vulgraad ≥ 80%", (df["fill_level"]>=80).sum())
-    k3.metric("🧍 Extra meegegeven (Delft/Den Haag)", f"{d_count} / {h_count}")
+    k2.metric("📊 Vulgraad ≥ 80%", (df["fill_level"] >= 80).sum())
+    k3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{d_count} / {h_count}")
 
     zichtbaar = [
         "container_name","address","city","location_code","content_type",
