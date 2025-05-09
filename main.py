@@ -94,59 +94,71 @@ def init_session_state():
 
 init_session_state()
 
+# ─── FORCEER GEBRUIKER ───────────────────────────
+# Toon een pop-up zolang er geen geldige gebruiker is gezet
+if "gebruiker" not in st.session_state or st.session_state.gebruiker == "Onbekend":
+    with st.modal("🔑 Kies je gebruiker"):
+        st.markdown("## Selecteer je werkgebied")
+        gekozen = st.selectbox("Gebruiker", ["Delft", "Den Haag"], key="modal_gebruiker")
+        if st.button("Bevestigen"):
+            st.session_state.gebruiker = gekozen          # sla keuze op
+            st.experimental_rerun()                       # herlaad de app
+    st.stop()  # voorkom laden van de rest van de app zonder gebruiker
+
 # ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
-    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
 
-    try:
-        if st.session_state.refresh_needed:
-            st.cache_data.clear()
-            st.session_state.refresh_needed = False
+    # laat zien welke gebruiker actief is en geef mogelijkheid om te wisselen
+    st.markdown(f"**Actieve gebruiker:** `{st.session_state.gebruiker}`")
+    if st.button("🔄 Wissel gebruiker"):
+        st.session_state.gebruiker = "Onbekend"           # forceer modal opnieuw
+        st.experimental_rerun()
 
-        df_sidebar = get_df_sidebar()
-    except Exception as e:
-        st.error(f"❌ Fout bij laden van containerdata: {e}")
-        df_sidebar = pd.DataFrame()
+    # rol-selectie
+    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"], key="rol_select")
 
+    # ── ROL: GEBRUIKER ────────────────────────────
     if rol == "Gebruiker":
-        gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"])
         st.markdown("### 🔎 Filters")
-        types = sorted(df_sidebar["content_type"].dropna().unique())
-        if st.session_state.selected_type not in types:
-            st.session_state.selected_type = types[0] if types else None
-        st.session_state.selected_type = st.selectbox("Content type", types, index=types.index(st.session_state.selected_type))
+
+        # cache-data ophalen
+        try:
+            df_sidebar = get_df_sidebar()
+            types = sorted(df_sidebar["content_type"].dropna().unique())
+        except Exception as e:
+            st.error(f"❌ Fout bij laden van containerdata: {e}")
+            types = []
+
+        # content-type dropdown
+        if types:
+            if "selected_type" not in st.session_state:
+                st.session_state.selected_type = types[0]
+
+            st.session_state.selected_type = st.selectbox(
+                "Content type",
+                types,
+                index=types.index(st.session_state.selected_type)
+            )
+
+        # toggle op-route
         st.session_state.op_route = st.toggle("📍 Alleen op route", value=st.session_state.op_route)
 
+        # routeselectie
         st.markdown("### 🚚 Routeselectie")
         try:
             df_routes_full = get_df_routes()
-
-            if not df_routes_full.empty:
-                def _parse(loc):
-                    try: return tuple(map(float, loc.split(",")))
-                    except: return (None, None)
-
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(lambda loc: pd.Series(_parse(loc)))
-
-                if "routes_cache" not in st.session_state:
-                    st.session_state["routes_cache"] = df_routes_full
-
-                beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-                st.multiselect(
-                    label="📍 Selecteer één of meerdere routes:",
-                    options=beschikbare_routes,
-                    default=st.session_state.get("geselecteerde_routes", []),
-                    key="geselecteerde_routes",
-                    placeholder="Klik om routes te selecteren",
-                )
-            else:
-                st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
+            beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
+            st.multiselect(
+                "📍 Selecteer één of meerdere routes:",
+                options=beschikbare_routes,
+                default=st.session_state.get("geselecteerde_routes", []),
+                key="geselecteerde_routes",
+            )
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
-
-
+    # ── ROL: UPLOAD ───────────────────────────────
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
         file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
