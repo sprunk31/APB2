@@ -111,6 +111,7 @@ with st.sidebar:
 
     if rol == "Gebruiker":
         gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"])
+        st.session_state["gebruiker"] = gebruiker
         st.markdown("### 🔎 Filters")
         types = sorted(df_sidebar["content_type"].dropna().unique())
         if st.session_state.selected_type not in types:
@@ -272,7 +273,7 @@ with tab1:
 
     # Filter op vulgraad-criteria
     bewerkbaar = bewerkbaar[
-        (bewerkbaar["gemiddeldevulgraad"] > 65) |
+        (bewerkbaar["gemiddeldevulgraad"] > 45) |
         (bewerkbaar["fill_level"] > 80)
         ]
 
