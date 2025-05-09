@@ -112,6 +112,7 @@ def init_session_state():
 init_session_state()
 
 # ─── SIDEBAR ─────────────────────────────────────
+df_sidebar = get_df_sidebar()
 with st.sidebar:
     st.header("🔧 Instellingen")
 
