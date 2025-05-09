@@ -94,25 +94,32 @@ def init_session_state():
 
 init_session_state()
 
+# ─── DIALOOGFUNCTIE ──────────────────────────────
+@st.dialog("🔑 Kies je gebruiker", width="small")
+def kies_gebruiker():
+    opties = ["Delft", "Den Haag"]
+    gebruiker = st.selectbox("Gebruiker", opties, index=None, placeholder="Selecteer...")
+    if st.button("Bevestigen", disabled=gebruiker is None):
+        st.session_state.gebruiker = gebruiker
+        st.rerun()                        # sluit dialoog en herlaad app
+
 # ─── FORCEER GEBRUIKER ───────────────────────────
-# Toon een pop-up zolang er geen geldige gebruiker is gezet
-if "gebruiker" not in st.session_state or st.session_state.gebruiker == "Onbekend":
-    with st.dialog("🔑 Kies je gebruiker"):
-        st.markdown("## Selecteer je werkgebied")
-        gekozen = st.selectbox("Gebruiker", ["Delft", "Den Haag"], key="modal_gebruiker")
-        if st.button("Bevestigen"):
-            st.session_state.gebruiker = gekozen          # sla keuze op
-            st.experimental_rerun()                       # herlaad de app
-    st.stop()  # voorkom laden van de rest van de app zonder gebruiker
+if not hasattr(st, "dialog"):            # fallback voor héél oude Streamlit
+    st.sidebar.warning("⚠️ Upgrade Streamlit voor modale dialogen.")
+    if "gebruiker" not in st.session_state:
+        st.session_state.gebruiker = st.sidebar.selectbox(
+            "Gebruiker", ["Delft", "Den Haag"])
+else:
+    if "gebruiker" not in st.session_state:
+        kies_gebruiker()                 # open modal
+        st.stop()                        # blokkeer tot keuze is gemaakt
 
 # ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
-
-    # laat zien welke gebruiker actief is en geef mogelijkheid om te wisselen
     st.markdown(f"**Actieve gebruiker:** `{st.session_state.gebruiker}`")
     if st.button("🔄 Wissel gebruiker"):
-        st.session_state.gebruiker = "Onbekend"           # forceer modal opnieuw
+        del st.session_state["gebruiker"]   # reset → dialoog verschijnt opnieuw
         st.experimental_rerun()
 
     # rol-selectie
