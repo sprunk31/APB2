@@ -243,6 +243,16 @@ with st.sidebar:
                 st.session_state.refresh_needed = True
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+# ─── CENTRALE DATA LAAD ──────────────────────────
+try:
+    df_sidebar = get_df_sidebar()
+    df_containers_all = get_df_containers()
+    df_routes_all = get_df_routes()
+    df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum >= current_date")
+    df_logboek_routes = run_query("SELECT * FROM public.apb_logboek_route")
+except Exception as e:
+    st.error(f"❌ Fout bij laden van gegevens: {e}")
+    df_sidebar = df_containers_all = df_routes_all = df_logboek = df_logboek_routes = pd.DataFrame()
 
 # ─── TABS ─────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
@@ -250,16 +260,13 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 # ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
     df = df_sidebar.copy()
-    if st.session_state.refresh_needed:
-        df = run_query("SELECT * FROM apb_containers")
-        st.session_state.refresh_needed = False
+    st.session_state.refresh_needed = False
 
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
     df["extra_meegegeven"] = df["extra_meegegeven"].astype(bool)
 
     # KPI's
     try:
-        df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum >= current_date")
         counts = df_logboek["gebruiker"].value_counts().to_dict()
         delft_count = counts.get("Delft", 0)
         denhaag_count = counts.get("Den Haag", 0)
@@ -373,8 +380,12 @@ with tab2:
         df[["lat", "lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
         return df
 
-    df_routes = load_routes_for_map()
-    df_containers = load_all_containers()
+
+    df_routes = df_routes_all.copy()
+    df_routes[["r_lat", "r_lon"]] = df_routes["container_location"].str.split(",", expand=True).astype(float)
+
+    df_containers = df_containers_all.copy()
+    df_containers[["lat", "lon"]] = df_containers["container_location"].str.split(",", expand=True).astype(float)
 
     sel_routes = st.session_state.geselecteerde_routes
     sel_names = st.session_state.extra_meegegeven_tijdelijk
@@ -483,30 +494,44 @@ with tab2:
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
 with tab3:
     st.subheader("🚣️ Route status")
-    df_routes = run_query("SELECT * FROM public.apb_routes")
+
+    df_routes = df_routes_all
+    df_log = df_logboek_routes
+
+    # Beschikbare routes ophalen
     routes = sorted(df_routes["route_omschrijving"].dropna().unique())
+    if not routes:
+        st.info("📭 Geen routes beschikbaar. Upload eerst data.")
+        st.stop()
+
+    # UI-componenten
     route = st.selectbox("Kies een route", routes)
     status_opties = ["Actueel", "Gedeeltelijk niet gereden door:", "Volledig niet gereden door:"]
     gekozen = st.selectbox("Status", status_opties)
     reden = st.text_input("Reden") if "niet gereden" in gekozen else ""
 
+    # Bevestig-knop verwerken
     if st.button("✅ Bevestig status"):
         vandaag = datetime.now().strftime("%Y-%m-%d")
+
         if gekozen == "Actueel":
-            df_log = run_query("SELECT * FROM public.apb_logboek_route")
-            for i, row in df_log[::-1].iterrows():
-                if row["route"] == route and row["datum"][:10] == vandaag:
-                    execute_query(
-                        "DELETE FROM public.apb_logboek_route WHERE id = :id",
-                        {"id": row["id"]}
-                    )
-                    st.success(f"🗑️ Verwijderd: {route} ({vandaag})")
-                    break
+            # Check of er al een logregel bestaat en verwijder deze
+            gevonden = df_log[
+                (df_log["route"] == route) &
+                (df_log["datum"].str[:10] == vandaag)
+            ]
+            if not gevonden.empty:
+                execute_query(
+                    "DELETE FROM public.apb_logboek_route WHERE id = :id",
+                    {"id": gevonden.iloc[0]['id']}
+                )
+                st.success(f"🗑️ Verwijderd: {route} ({vandaag})")
             else:
                 st.info("ℹ️ Geen afwijking voor vandaag gevonden.")
+
         else:
             if not reden:
-                st.warning("⚠️ Reden verplicht.")
+                st.warning("⚠️ Reden is verplicht bij afwijkingen.")
             else:
                 execute_query(
                     """INSERT INTO apb_logboek_route (route, status, reden, datum)
@@ -520,3 +545,4 @@ with tab3:
                 )
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
+
