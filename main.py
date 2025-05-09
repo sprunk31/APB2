@@ -359,10 +359,28 @@ with tab1:
 with tab2:
     st.subheader("🗺️ Containerkaart")
 
-    import matplotlib.cm as cm
-    import matplotlib.colors as mcolors
+    @st.cache_data(ttl=300)
+    def load_routes_for_map():
+        df = run_query("""
+            SELECT r.route_omschrijving, r.omschrijving AS container_name,
+                   c.container_location, c.content_type, c.fill_level, c.address, c.city
+            FROM apb_routes r
+            JOIN apb_containers c ON r.omschrijving = c.container_name
+            WHERE c.container_location IS NOT NULL
+        """)
+        df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
+        return df
 
-    # Voorbereiding: Data laden en splitsen in coordinaten
+    @st.cache_data(ttl=300)
+    def load_all_containers():
+        df = run_query("""
+            SELECT container_name, container_location, content_type, fill_level, address, city
+            FROM apb_containers
+        """)
+        df[["lat", "lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
+        return df
+
+
     df_routes = df_routes_all.copy()
     df_routes[["r_lat", "r_lon"]] = df_routes["container_location"].str.split(",", expand=True).astype(float)
 
@@ -371,9 +389,9 @@ with tab2:
 
     sel_routes = st.session_state.geselecteerde_routes
     sel_names = st.session_state.extra_meegegeven_tijdelijk
+
     df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
 
-    # ─── NABIJSTE ROUTE ───────────────────────────
     def find_nearest_route(r):
         if pd.isna(r["lat"]) or pd.isna(r["lon"]):
             return None
@@ -395,51 +413,38 @@ with tab2:
     else:
         df_hand["dichtstbijzijnde_route"] = None
 
-    # ─── KLEUREN TOEKENNEN ─────────────────────────
-    def generate_colormap(routes, alpha=175):
-        cmap = cm.get_cmap('tab20', len(routes))
-        return {
-            route: [int(r * 255), int(g * 255), int(b * 255), alpha]
-            for i, route in enumerate(routes)
-            for r, g, b, _ in [cmap(i)]
-        }
+    kleuren = [
+        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
+        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+    ]
+    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
 
-    kleur_map = generate_colormap(sel_routes)
-
-    # ─── LAGEN AANMAKEN ───────────────────────────
     layers = []
-
     for route in sel_routes:
         df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
-        df_r = df_r.dropna(subset=["r_lat", "r_lon", "fill_level", "address", "city"])
-
-        vereiste_kolommen = {"container_name", "content_type", "fill_level", "address", "city"}
-        if vereiste_kolommen.issubset(df_r.columns):
-            df_r.loc[:, "tooltip_label"] = df_r.apply(
-                lambda row: f"""
-                    <b>🧺 {row['container_name']}</b><br>
-                    Type: {row['content_type']}<br>
-                    Vulgraad: {row['fill_level']}%<br>
-                    Route: {row['route_omschrijving'] or "—"}<br>
-                    Locatie: {row['address']}, {row['city']}
-                """, axis=1
-            )
-
-            layers.append(pdk.Layer(
-                "ScatterplotLayer",
-                data=df_r,
-                get_position='[r_lon, r_lat]',
-                get_fill_color=kleur_map[route],
-                radiusMinPixels=4,
-                radiusMaxPixels=6,
-                pickable=True,
-                get_line_color=[0, 0, 220],
-                line_width_min_pixels=0
-            ))
+        df_r["tooltip_label"] = df_r.apply(
+            lambda row: f"""
+                <b>🧺 {row['container_name']}</b><br>
+                Type: {row['content_type']}<br>
+                Vulgraad: {row['fill_level']}%<br>
+                Route: {row['route_omschrijving'] or "—"}<br>
+                Locatie: {row['address']}, {row['city']}
+            """, axis=1
+        )
+        layers.append(pdk.Layer(
+            "ScatterplotLayer",
+            data=df_r,
+            get_position='[r_lon, r_lat]',
+            get_fill_color=kleur_map[route],
+            radiusMinPixels=4,
+            radiusMaxPixels=6,
+            pickable=True,
+            get_line_color=[0, 0, 220],
+            line_width_min_pixels=0
+        ))
 
     if not df_hand.empty:
-        df_hand = df_hand.dropna(subset=["lat", "lon"])
-        df_hand.loc[:, "tooltip_label"] = df_hand.apply(
+        df_hand["tooltip_label"] = df_hand.apply(
             lambda row: f"""
                 <b>🖤 {row['container_name']}</b><br>
                 Type: {row['content_type']}<br>
@@ -450,7 +455,7 @@ with tab2:
         )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
-            data=df_hand,
+            data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
             get_fill_color='[0, 0, 0, 220]',
             radiusMinPixels=5,
@@ -463,7 +468,6 @@ with tab2:
         "style": {"backgroundColor": "steelblue", "color": "white"}
     }
 
-    # ─── KAART TONEN ───────────────────────────────
     if not df_containers.empty:
         midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
     else:
@@ -475,11 +479,9 @@ with tab2:
             latitude=midpoint[0], longitude=midpoint[1],
             zoom=11, pitch=0
         ),
-        layers=layers,
-        tooltip=tooltip
+        layers=layers, tooltip=tooltip
     ))
 
-    # ─── TABEL VOOR HANDMATIGE CONTAINERS ─────────
     if not df_hand.empty:
         st.markdown("### 📋 Handmatig geselecteerde containers")
         st.dataframe(df_hand[[
@@ -488,7 +490,6 @@ with tab2:
         ]], use_container_width=True)
     else:
         st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
-
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
 with tab3:
