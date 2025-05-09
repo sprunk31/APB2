@@ -109,38 +109,32 @@ with st.sidebar:
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
-    if rol == "Gebruiker":
-        if pagina == "📊 Dashboard":
-            # --- Content type filter (én key voor state) ---
-            df_sidebar = get_df_sidebar()
-            types = sorted(df_sidebar["content_type"].dropna().unique())
-            options = ["Alle"] + types
-            # haal huidige staat op of val terug op "Alle"
-            current = st.session_state.get("filter_content_type", "Alle")
-            idx = options.index(current) if current in options else 0
+    df_sidebar = get_df_sidebar()
 
-            sel = st.selectbox(
+    if rol == "Gebruiker":
+        # Alleen content_type als we in Dashboard zitten
+        if pagina == "📊 Dashboard":
+            types = sorted(df_sidebar["content_type"].dropna().unique())
+            all_opts = ["Alle"] + types
+            sel_type = st.selectbox(
                 "🔎 Content type filter",
-                options=options,
-                index=idx,
-                key="filter_content_type",
+                options=all_opts,
+                index=0,
                 help="Selecteer één type (of 'Alle' voor geen filter)."
             )
-            # st.session_state["filter_content_type"] = sel wordt automatisch gezet
+            st.session_state.selected_type = None if sel_type == "Alle" else sel_type
 
+        # Alleen routes als we in Kaartweergave zitten
         elif pagina == "🗺️ Kaartweergave":
-            # --- Route filter ---
-            df_routes = get_df_routes()
-            routes = sorted(df_routes["route_omschrijving"].dropna().unique())
-            default = st.session_state.get("filter_routes", [])
-            sel = st.multiselect(
+            df_routes_full     = get_df_routes()
+            beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
+            sel_routes = st.multiselect(
                 "📍 Routeselectie",
-                options=routes,
-                default=default,
-                key="filter_routes",
+                options=beschikbare_routes,
+                default=st.session_state.geselecteerde_routes,
                 help="Selecteer één of meerdere routes."
             )
-            # st.session_state["filter_routes"] = sel automatisch
+            st.session_state.geselecteerde_routes = sel_routes
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
