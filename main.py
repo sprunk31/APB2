@@ -111,7 +111,7 @@ with st.sidebar:
         df_sidebar = pd.DataFrame()
 
     if rol == "Gebruiker":
-        st.session_state.gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"], key="gebruiker")
+        st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"], key="gebruiker")
 
         st.markdown("### 🔎 Filters")
         types = sorted(df_sidebar["content_type"].dropna().unique())
