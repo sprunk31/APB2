@@ -97,7 +97,7 @@ init_session_state()
 # ─── FORCEER GEBRUIKER ───────────────────────────
 # Toon een pop-up zolang er geen geldige gebruiker is gezet
 if "gebruiker" not in st.session_state or st.session_state.gebruiker == "Onbekend":
-    with st.modal("🔑 Kies je gebruiker"):
+    with st.dialog("🔑 Kies je gebruiker"):
         st.markdown("## Selecteer je werkgebied")
         gekozen = st.selectbox("Gebruiker", ["Delft", "Den Haag"], key="modal_gebruiker")
         if st.button("Bevestigen"):
