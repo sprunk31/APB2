@@ -184,11 +184,10 @@ with st.sidebar:
             )
             st.session_state.geselecteerde_routes = selected_routes_from_widget  # Sla direct op in session state
 
-        elif rol == "Upload":
-            st.markdown("---")  # Visuele scheiding
-            st.markdown("### 📤 Upload bestanden")
-            file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
-            file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
+    elif rol == "Upload":
+        st.markdown("### 📤 Upload bestanden")
+        file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
+        file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
         if file1 and file2:
             try:
                 df1 = pd.read_excel(file1)
