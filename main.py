@@ -122,49 +122,66 @@ with st.sidebar:
         st.error(f"❌ Fout bij laden van containerdata: {e}")
         df_sidebar = pd.DataFrame()
 
-    # ─── Gebruikerscherm Filters ─────────────────
-    if rol == "Gebruiker":
-        st.markdown("### 🔎 Filters")
-        # Content type filter as checkboxes in an expander
-        types = sorted(df_sidebar["content_type"].dropna().unique())
-        if "selected_types" not in st.session_state:
-    # Default to only 'GFX' selected
-    st.session_state.selected_types = ["GFX"] if "GFX" in types else []
-    with st.expander("Content types", expanded=True):
-        selected_types = []
-        for t in types:
-            checked = st.checkbox(
-                label=t,
-                value=(t in st.session_state.selected_types),
-                key=f"cb_type_{t}"
-            )
-            if checked:
-                selected_types.append(t)
-        st.session_state.selected_types = selected_types
+    ## ─── SIDEBAR ─────────────────────────────────────
+    with st.sidebar:
+        st.header("🔧 Instellingen")
+        rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
+        st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
-        st.markdown("### 🚚 Routeselectie")
+        # Clear cache if needed
         try:
-            df_routes_full = get_df_routes()
-            if not df_routes_full.empty:
-                beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-                if "geselecteerde_routes" not in st.session_state:
-                    st.session_state.geselecteerde_routes = []
-                # Routes filter as checkboxes in an expander
-                with st.expander("Selecteer routes", expanded=False):
-                    geselecteerde = []
-                    for route in beschikbare_routes:
-                        checked = st.checkbox(
-                            label=route,
-                            value=(route in st.session_state.geselecteerde_routes),
-                            key=f"cb_route_{route}"
-                        )
-                        if checked:
-                            geselecteerde.append(route)
-                    st.session_state.geselecteerde_routes = geselecteerde
-            else:
-                st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
+            if st.session_state.refresh_needed:
+                st.cache_data.clear()
+                st.session_state.refresh_needed = False
+
+            df_sidebar = get_df_sidebar()
         except Exception as e:
-            st.error(f"❌ Fout bij ophalen van routes: {e}")
+            st.error(f"❌ Fout bij laden van containerdata: {e}")
+            df_sidebar = pd.DataFrame()
+
+        # ─── Gebruikerscherm Filters ─────────────────
+    if rol == "Gebruiker":
+            st.markdown("### 🔎 Filters")
+            # Content type filter as checkboxes in an expander
+            types = sorted(df_sidebar["content_type"].dropna().unique())
+            # Default: geen types geselecteerd bij opstarten
+            if "selected_types" not in st.session_state:
+                st.session_state.selected_types = []
+            with st.expander("Content types", expanded=True):
+                selected_types = []
+                for t in types:
+                    checked = st.checkbox(
+                        label=t,
+                        value=(t in st.session_state.selected_types),
+                        key=f"cb_type_{t}"
+                    )
+                    if checked:
+                        selected_types.append(t)
+                st.session_state.selected_types = selected_types
+
+            st.markdown("### 🚚 Routeselectie")
+            try:
+                df_routes_full = get_df_routes()
+                if not df_routes_full.empty:
+                    beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
+                    if "geselecteerde_routes" not in st.session_state:
+                        st.session_state.geselecteerde_routes = []
+                    # Routes filter as checkboxes in an expander
+                    with st.expander("Selecteer routes", expanded=False):
+                        geselecteerde = []
+                        for route in beschikbare_routes:
+                            checked = st.checkbox(
+                                label=route,
+                                value=(route in st.session_state.geselecteerde_routes),
+                                key=f"cb_route_{route}"
+                            )
+                            if checked:
+                                geselecteerde.append(route)
+                        st.session_state.geselecteerde_routes = geselecteerde
+                else:
+                    st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
+            except Exception as e:
+                st.error(f"❌ Fout bij ophalen van routes: {e}")
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
