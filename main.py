@@ -133,8 +133,12 @@ with st.sidebar:
         types = sorted(df_sidebar["content_type"].dropna().unique())
         if st.session_state.selected_type not in types:
             st.session_state.selected_type = types[0] if types else None
-        st.session_state.selected_type = st.selectbox("Content type", types, index=types.index(st.session_state.selected_type))
-
+        st.selectbox(
+            "Content type", types,
+            index=types.index(st.session_state.selected_type),
+            key="selected_type",
+            on_change=st.rerun
+        )
 
         st.markdown("### 🚚 Routeselectie")
         try:
