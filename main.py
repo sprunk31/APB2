@@ -88,7 +88,7 @@ def execute_query(query, params=None):
 
 # ─── NAVIGATIE VIA QUERY PARAMS EN MARKDOWN ───────────────────────
 # 1) Lees de huidige pagina uit de URL-query
-params = st.experimental_get_query_params()
+params = st.query_params
 pagina = params.get("pagina", ["dashboard"])[0]
 
 # 2) Bouw je mapping van labels → slug
@@ -101,7 +101,6 @@ pages = {
 # 3) Toon in de sidebar enkel de labels als Markdown-links
 st.sidebar.header("🔖 Ga naar")
 for label, slug in pages.items():
-    # “active” styling
     if pagina == slug:
         st.sidebar.markdown(f"**{label}**")
     else:
