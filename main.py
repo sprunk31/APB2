@@ -76,6 +76,24 @@ def execute_query(query, params=None):
 
 # ─── PAGINA INSTELLINGEN ────────────────────────
 st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
+st.markdown("""
+<style>
+/* Sidebar tekst kleiner en compacter */
+[data-testid="stSidebar"] * {
+    font-size: 0.8rem !important;
+    line-height: 1.1 !important;
+}
+/* Maak sidebar inputlabels ook klein */
+label, .st-cb, .st-af {
+    font-size: 0.78rem !important;
+}
+/* Maak radio/checkboxopties compacter */
+.stRadio > div {
+    gap: 0.25rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("♻️ Afvalcontainerbeheer Dashboard")
 
 # ─── SESSIESTATE INITIALISATIE ─────────────────────────────
