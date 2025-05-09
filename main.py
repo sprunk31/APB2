@@ -203,14 +203,37 @@ with st.sidebar:
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 if pagina == "📊 Dashboard":
+    # ───── KPI BEREKENING OP VOLLEDIGE DATA ─────────────────
+    df_all = df_sidebar.copy()
+    df_all["fill_level"] = pd.to_numeric(df_all["fill_level"], errors="coerce")
+
+    # KPI’s over alle containers, ongeacht filters
+    totaal = len(df_all)
+    vol80 = (df_all["fill_level"] >= 80).sum()
+    try:
+        df_log = run_query(
+            "SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum>=current_date"
+        )
+        counts = df_log["gebruiker"].value_counts().to_dict()
+        d_count = counts.get("Delft", 0)
+        h_count = counts.get("Den Haag", 0)
+    except:
+        d_count = h_count = 0
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("📦 Totaal containers", totaal)
+    k2.metric("📊 Vulgraad ≥ 80%", vol80)
+    k3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{d_count} / {h_count}")
+
+    # ───── DAT A FILTEREN VOOR TABEL ────────────────────────
     df = df_sidebar.copy()
 
-    # Filter content types
-    sel_types = st.session_state.selected_types or []
-    if sel_types:
-        df = df[df["content_type"].isin(sel_types)]
+    # 1) Filter op content_type
+    sel_type = st.session_state.selected_type
+    if sel_type:
+        df = df[df["content_type"] == sel_type]
 
-    # Filter routes
+    # 2) Filter op routes
     sel_routes = st.session_state.geselecteerde_routes or []
     if sel_routes:
         df_routes_full = get_df_routes()
@@ -219,34 +242,17 @@ if pagina == "📊 Dashboard":
         ]["container_name"].unique()
         df = df[df["container_name"].isin(names_on_routes)]
 
-    df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
+    # 3) Rest van je logica: bewerkbare containers, AgGrid, etc.
     df["extra_meegegeven"] = df["extra_meegegeven"].astype(bool)
-
-    # KPI's
-    try:
-        df_log = run_query(
-            "SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum>=current_date"
-        )
-        counts = df_log["gebruiker"].value_counts().to_dict()
-        d_count = counts.get("Delft",0)
-        h_count = counts.get("Den Haag",0)
-    except:
-        d_count = h_count = 0
-
-    k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Totaal containers", len(df))
-    k2.metric("📊 Vulgraad ≥ 80%", (df["fill_level"]>=80).sum())
-    k3.metric("🧍 Extra meegegeven (Delft/Den Haag)", f"{d_count} / {h_count}")
-
     zichtbaar = [
-        "container_name","address","city","location_code","content_type",
-        "fill_level","combinatietelling","gemiddeldevulgraad","oproute","extra_meegegeven"
+        "container_name", "address", "city", "location_code", "content_type",
+        "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
     ]
-
     bewerkbaar = df[~df["extra_meegegeven"]].copy()
     bewerkbaar = bewerkbaar[
-        (bewerkbaar["gemiddeldevulgraad"]>45)|(bewerkbaar["fill_level"]>80)
-    ].sort_values("gemiddeldevulgraad", ascending=False)
+        (bewerkbaar["gemiddeldevulgraad"] > 45) |
+        (bewerkbaar["fill_level"] > 80)
+        ].sort_values("gemiddeldevulgraad", ascending=False)
 
     st.subheader("✏️ Bewerkbare containers")
     gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
