@@ -406,7 +406,7 @@ with tab2:
     import matplotlib.colors as mcolors
 
 
-    def generate_colormap(routes, alpha=175):
+    def generate_colormap(routes, alpha=200):
         cmap = cm.get_cmap('tab20', len(routes))  # tab20 of 'hsv' of 'Set3'
         kleur_map = {}
         for i, route in enumerate(routes):
