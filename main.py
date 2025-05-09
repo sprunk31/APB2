@@ -121,8 +121,13 @@ with st.sidebar:
         if "selected_type" not in st.session_state or st.session_state.selected_type not in types:
             st.session_state.selected_type = types[0] if types else None
 
-        st.session_state.selected_type = st.selectbox(
-            "Content type", types, index=types.index(st.session_state.selected_type), key="filter_type")
+        selected_type = st.selectbox(
+            "Content type",
+            types,
+            index=types.index(st.session_state.selected_type),
+            key="filter_type"
+        )
+        st.session_state.selected_type = selected_type
 
         # Gebruik toggle met key
         st.session_state.op_route = st.toggle(
