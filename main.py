@@ -115,15 +115,17 @@ with st.sidebar:
     if rol == "Gebruiker":
         # Alleen content_type als we in Dashboard zitten
         if pagina == "📊 Dashboard":
+            # zonder "Alle", want je wilt alleen werkelijke content_types
             types = sorted(df_sidebar["content_type"].dropna().unique())
 
-            sel_type = st.selectbox(
+            # let op: géén index/value, wel key
+            st.selectbox(
                 "🔎 Content type filter",
                 options=types,
                 key="selected_type",
-                help="Selecteer één type (of 'Alle' voor geen filter)."
+                help="Selecteer één content type (standaard GFX)."
             )
-            st.session_state.selected_type = None if sel_type == "Alle" else sel_type
+
 
         # Alleen routes als we in Kaartweergave zitten
         elif pagina == "🗺️ Kaartweergave":
