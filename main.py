@@ -231,14 +231,10 @@ if pagina == "📊 Dashboard":
 
     # ───── DAT A FILTEREN VOOR TABEL ────────────────────────
     df = df_sidebar.copy()
-
-    # 1) Filter op content_type
-    sel_type = st.session_state.selected_type
-    if sel_type:
-        df = df[
-            (df["content_type"] == sel_type) &
-            (df["oproute"] == "Nee")
-            ]
+    df = df[
+        (df["content_type"] == st.session_state.selected_type)
+        & (df["oproute"] == "Nee")
+        ]
 
     # 2) Filter op routes
     sel_routes = st.session_state.geselecteerde_routes or []
