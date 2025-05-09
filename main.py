@@ -117,7 +117,6 @@ with st.sidebar:
         st.markdown("### 🔎 Filters")
         types = sorted(df_sidebar["content_type"].dropna().unique())
 
-        # Gebruik selectbox met key om state te behouden
         if "selected_type" not in st.session_state or st.session_state.selected_type not in types:
             st.session_state.selected_type = types[0] if types else None
 
@@ -125,13 +124,8 @@ with st.sidebar:
             "Content type",
             types,
             index=types.index(st.session_state.selected_type),
-            key="filter_type"
+            key="selected_type"  # sleutel moet exact overeenkomen
         )
-        st.session_state.selected_type = selected_type
-
-        # Gebruik toggle met key
-        st.session_state.op_route = st.toggle(
-            "📍 Alleen op route", value=st.session_state.op_route, key="filter_op_route")
 
         st.markdown("### 🚚 Routeselectie")
         try:
@@ -272,7 +266,7 @@ with tab1:
 
     # Filter op vulgraad-criteria
     bewerkbaar = bewerkbaar[
-        (bewerkbaar["gemiddeldevulgraad"] > 40) |
+        (bewerkbaar["gemiddeldevulgraad"] > 65) |
         (bewerkbaar["fill_level"] > 80)
         ]
 
