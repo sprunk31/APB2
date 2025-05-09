@@ -99,7 +99,6 @@ with st.sidebar:
     st.header("🔧 Instellingen")
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
 
-    # ── Containers ophalen (voor filters en sidebar) ──
     try:
         if st.session_state.refresh_needed:
             st.cache_data.clear()
@@ -111,41 +110,38 @@ with st.sidebar:
         df_sidebar = pd.DataFrame()
 
     if rol == "Gebruiker":
-        st.session_state.gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"], key="gebruiker")
-
+        gebruiker = st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"])
         st.markdown("### 🔎 Filters")
         types = sorted(df_sidebar["content_type"].dropna().unique())
-        if types:
-            if st.session_state.selected_type not in types:
-                st.session_state.selected_type = types[0]
-
-            st.selectbox(
-                "Content type",
-                types,
-                index=types.index(st.session_state.selected_type),
-                key="selected_type"
-            )
-        else:
-            st.warning("⚠️ Geen content types beschikbaar in data.")
-
-        st.toggle("📍 Alleen op route", value=st.session_state.op_route, key="op_route")
+        if st.session_state.selected_type not in types:
+            st.session_state.selected_type = types[0] if types else None
+        st.session_state.selected_type = st.selectbox("Content type", types, index=types.index(st.session_state.selected_type))
+        st.session_state.op_route = st.toggle("📍 Alleen op route", value=st.session_state.op_route)
 
         st.markdown("### 🚚 Routeselectie")
         try:
-            # Alleen herladen als nodig
-            if "routes_cache" not in st.session_state or st.session_state.refresh_needed:
-                df_routes_full = get_df_routes()
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].str.split(",", expand=True).astype(float)
-                st.session_state["routes_cache"] = df_routes_full
+            df_routes_full = get_df_routes()
 
-            beschikbare_routes = sorted(st.session_state["routes_cache"]["route_omschrijving"].dropna().unique())
+            if not df_routes_full.empty:
+                def _parse(loc):
+                    try: return tuple(map(float, loc.split(",")))
+                    except: return (None, None)
 
-            st.multiselect(
-                label="📍 Selecteer één of meerdere routes:",
-                options=beschikbare_routes,
-                key="geselecteerde_routes",
-                placeholder="Klik om routes te selecteren (blijft geselecteerd)"
-            )
+                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(lambda loc: pd.Series(_parse(loc)))
+
+                if "routes_cache" not in st.session_state:
+                    st.session_state["routes_cache"] = df_routes_full
+
+                beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
+                st.multiselect(
+                    label="📍 Selecteer één of meerdere routes:",
+                    options=beschikbare_routes,
+                    default=st.session_state.get("geselecteerde_routes", []),
+                    key="geselecteerde_routes",
+                    placeholder="Klik om routes te selecteren",
+                )
+            else:
+                st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
