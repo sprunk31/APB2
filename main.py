@@ -101,9 +101,9 @@ with st.sidebar:
 
     # ── Containers ophalen (voor filters en sidebar) ──
     try:
-        if st.session_state.refresh_needed:
+        if st.session_state.get("refresh_needed", False):
             st.cache_data.clear()
-            st.session_state.refresh_needed = False
+            st.session_state["refresh_needed"] = False
 
         df_sidebar = get_df_sidebar()
     except Exception as e:
@@ -111,52 +111,55 @@ with st.sidebar:
         df_sidebar = pd.DataFrame()
 
     if rol == "Gebruiker":
+        # Initialiseer session state velden indien nog niet aanwezig
+        if "selected_type" not in st.session_state:
+            st.session_state["selected_type"] = ""
+        if "op_route" not in st.session_state:
+            st.session_state["op_route"] = False
+        if "geselecteerde_routes" not in st.session_state:
+            st.session_state["geselecteerde_routes"] = []
+
         st.selectbox("🔑 Kies je gebruiker:", ["Delft", "Den Haag"], key="gebruiker")
 
         st.markdown("### 🔎 Filters")
         types = sorted(df_sidebar["content_type"].dropna().unique())
         if types:
-            if st.session_state.selected_type not in types:
-                st.session_state.selected_type = types[0]
-
+            default_type = st.session_state.get("selected_type", types[0])
             st.selectbox(
                 "Content type",
                 types,
-                index=types.index(st.session_state.selected_type),
+                index=types.index(default_type) if default_type in types else 0,
                 key="selected_type"
             )
         else:
             st.warning("⚠️ Geen content types beschikbaar in data.")
 
-        st.toggle("📍 Alleen op route", value=st.session_state.op_route, key="op_route")
+        st.toggle("📍 Alleen op route", value=st.session_state["op_route"], key="op_route")
 
         st.markdown("### 🚚 Routeselectie")
         try:
-            # Alleen herladen als nodig
-            if "routes_cache" not in st.session_state or st.session_state.refresh_needed:
+            if "routes_cache" not in st.session_state or st.session_state["refresh_needed"]:
                 df_routes_full = get_df_routes()
                 df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].str.split(",", expand=True).astype(float)
                 st.session_state["routes_cache"] = df_routes_full
 
             beschikbare_routes = sorted(st.session_state["routes_cache"]["route_omschrijving"].dropna().unique())
-
             st.multiselect(
                 label="📍 Selecteer één of meerdere routes:",
                 options=beschikbare_routes,
+                default=st.session_state.get("geselecteerde_routes", []),
                 key="geselecteerde_routes",
                 placeholder="Klik om routes te selecteren (blijft geselecteerd)"
             )
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
-
-
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
         file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
         file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
-        if file1 and file2:
 
+        if file1 and file2:
             try:
                 # 📥 1. Lees en verwerk bestanden
                 df1 = pd.read_excel(file1)
@@ -169,15 +172,14 @@ with st.sidebar:
                     (df1['operational_state'] == 'In use') &
                     (df1['status'] == 'In use') &
                     (df1['on_hold'] == 'No')
-                    ].copy()
+                ].copy()
 
                 df1["content_type"] = df1["content_type"].apply(lambda x: "Glas" if "glass" in str(x).lower() else x)
-                df1["combinatietelling"] = df1.groupby(["location_code", "content_type"])["content_type"].transform(
-                    "count")
-                df1["gemiddeldevulgraad"] = df1.groupby(["location_code", "content_type"])["fill_level"].transform(
-                    "mean")
+                df1["combinatietelling"] = df1.groupby(["location_code", "content_type"])["content_type"].transform("count")
+                df1["gemiddeldevulgraad"] = df1.groupby(["location_code", "content_type"])["fill_level"].transform("mean")
                 df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"].values).map({True: "Ja", False: "Nee"})
                 df1["extra_meegegeven"] = False
+
                 kolommen_bewaren = [
                     "container_name", "address", "city", "location_code", "content_type",
                     "fill_level", "container_location", "combinatietelling",
@@ -185,57 +187,58 @@ with st.sidebar:
                 ]
                 df1 = df1[kolommen_bewaren]
 
-                # 🚀 3. Tabel legen en data snel opnieuw invoegen
+                # 🚀 3. Data in database plaatsen
                 engine = get_engine()
                 with engine.begin() as conn:
                     conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
                 df1.to_sql("apb_containers", engine, if_exists="append", index=False)
+
                 # 📦 4. Verwerk routes
                 df2 = df2.rename(columns={
                     "Route Omschrijving": "route_omschrijving",
                     "Omschrijving": "omschrijving",
                     "Datum": "datum"
-                })
+                })[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
 
-                df2 = df2[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
                 with engine.begin() as conn:
                     conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
                 df2.to_sql("apb_routes", engine, if_exists="append", index=False)
 
                 # 🗺️ 5. Route-cache bijwerken
                 df_routes_full = run_query("""
-                        SELECT r.route_omschrijving, r.omschrijving AS container_name,
-                               c.container_location, c.content_type
-                        FROM apb_routes r
-                        JOIN apb_containers c ON r.omschrijving = c.container_name
-                        WHERE c.container_location IS NOT NULL
-                    """)
+                    SELECT r.route_omschrijving, r.omschrijving AS container_name,
+                           c.container_location, c.content_type
+                    FROM apb_routes r
+                    JOIN apb_containers c ON r.omschrijving = c.container_name
+                    WHERE c.container_location IS NOT NULL
+                """)
                 def _parse(loc):
                     try:
                         return tuple(map(float, loc.split(",")))
                     except:
                         return (None, None)
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc)))
-                if "routes_cache" not in st.session_state or st.session_state.refresh_needed:
-                    st.session_state["routes_cache"] = df_routes_full
+                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(lambda loc: pd.Series(_parse(loc)))
+
+                st.session_state["routes_cache"] = df_routes_full
 
                 # 🧮 6. Log aantal volle containers
                 aantal_volle_bakken = int((df1["fill_level"] >= 80).sum())
                 vandaag = datetime.now().date()
                 with engine.begin() as conn:
                     conn.execute(text("""
-                            INSERT INTO apb_logboek_totaal (datum, aantal_volle_bakken)
-                            VALUES (:datum, :aantal)
-                            ON CONFLICT (datum)
-                            DO UPDATE SET aantal_volle_bakken = EXCLUDED.aantal_volle_bakken
-                        """), {"datum": vandaag, "aantal": aantal_volle_bakken})
+                        INSERT INTO apb_logboek_totaal (datum, aantal_volle_bakken)
+                        VALUES (:datum, :aantal)
+                        ON CONFLICT (datum)
+                        DO UPDATE SET aantal_volle_bakken = EXCLUDED.aantal_volle_bakken
+                    """), {"datum": vandaag, "aantal": aantal_volle_bakken})
 
-                # ✅ 7. Afronden
+                # ✅ 7. Klaar
                 st.success("✅ Gegevens succesvol geüpload en verwerkt.")
-                st.session_state.refresh_needed = True
+                st.session_state["refresh_needed"] = True
+
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+
 
 # ─── TABS ─────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
