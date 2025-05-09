@@ -115,22 +115,14 @@ with st.sidebar:
         # Alleen content_type als we in Dashboard zitten
         if pagina == "📊 Dashboard":
             types = sorted(df_sidebar["content_type"].dropna().unique())
-
-            # Gebruik vorige selectie als default, of de eerste waarde
-            default_type = st.session_state.get("selected_type", types[0])
-            if default_type not in types:
-                default_type = types[0]
-
+            all_opts = ["Alle"] + types
             sel_type = st.selectbox(
                 "🔎 Content type filter",
-                options=types,
-                index=types.index(default_type),
-                help="Selecteer één type."
+                options=all_opts,
+                index=0,
+                help="Selecteer één type (of 'Alle' voor geen filter)."
             )
-
-            st.session_state.selected_type = sel_type
-
-
+            st.session_state.selected_type = None if sel_type == "Alle" else sel_type
 
         # Alleen routes als we in Kaartweergave zitten
         elif pagina == "🗺️ Kaartweergave":
