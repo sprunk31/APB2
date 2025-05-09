@@ -209,12 +209,14 @@ with st.sidebar:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
+# ─── TAB 1: DASHBOARD ────────────────────────────
 if pagina == "📊 Dashboard":
-    # ───── KPI BEREKENING OP VOLLEDIGE DATA ─────────────────
+    st.subheader("✅ Overzicht & Selectie")
+
+    # ───── KPI BEREKENING ─────────────────
     df_all = df_sidebar.copy()
     df_all["fill_level"] = pd.to_numeric(df_all["fill_level"], errors="coerce")
 
-    # KPI’s over alle containers, ongeacht filters
     totaal = len(df_all)
     vol80 = (df_all["fill_level"] >= 80).sum()
     try:
@@ -230,20 +232,17 @@ if pagina == "📊 Dashboard":
     k1, k2, k3 = st.columns(3)
     k1.metric("📦 Totaal containers", totaal)
     k2.metric("📊 Vulgraad ≥ 80%", vol80)
-    k3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{d_count} / {h_count}")
+    k3.metric("🧑 Extra meegegeven (Delft / Den Haag)", f"{d_count} / {h_count}")
 
-    # ───── DAT A FILTEREN VOOR TABEL ────────────────────────
+    # ───── FILTERING ──────────────────────
     df = df_sidebar.copy()
-
-    # 1) Filter op content_type
-    sel_type = st.session_state.selected_type
+    sel_type = st.session_state["selected_type"]
     if sel_type:
         df = df[
             (df["content_type"] == sel_type) &
             (df["oproute"] == "Nee")
-            ]
+        ]
 
-    # 2) Filter op routes
     sel_routes = st.session_state.geselecteerde_routes or []
     if sel_routes:
         df_routes_full = get_df_routes()
@@ -252,28 +251,34 @@ if pagina == "📊 Dashboard":
         ]["container_name"].unique()
         df = df[df["container_name"].isin(names_on_routes)]
 
-    # 3) Rest van je logica: bewerkbare containers, AgGrid, etc.
     df["extra_meegegeven"] = df["extra_meegegeven"].astype(bool)
+
     zichtbaar = [
         "container_name", "address", "city", "location_code", "content_type",
         "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
     ]
+
     bewerkbaar = df[~df["extra_meegegeven"]].copy()
     bewerkbaar = bewerkbaar[
         (bewerkbaar["gemiddeldevulgraad"] > 45) |
         (bewerkbaar["fill_level"] > 80)
-        ].sort_values("gemiddeldevulgraad", ascending=False)
+    ].sort_values("gemiddeldevulgraad", ascending=False)
 
-    st.subheader("✏️ Bewerkbare containers")
+    st.subheader("✏️ Bewerken van containers")
+    st.markdown("Selecteer containers met een hoge vulgraad of gemiddelde en markeer ze als 'extra meegegeven'.")
+
     gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
-    gb.configure_default_column(filter=True)
+    gb.configure_default_column(filter=True, resizable=True)
     gb.configure_column("extra_meegegeven", editable=True)
+
     grid = AgGrid(
         bewerkbaar[zichtbaar],
         gridOptions=gb.build(),
         update_mode=GridUpdateMode.VALUE_CHANGED,
-        height=500
+        height=500,
+        fit_columns_on_grid_load=True
     )
+
     updated = grid["data"].copy()
     updated["extra_meegegeven"] = updated["extra_meegegeven"].astype(bool)
     st.session_state.extra_meegegeven_tijdelijk = (
@@ -325,9 +330,10 @@ if pagina == "📊 Dashboard":
             else:
                 st.warning("⚠️ Geen nieuwe logs toegevoegd.")
 
-    st.subheader("🔒 Reeds gemarkeerde containers")
+    st.subheader("🔐 Reeds gemarkeerde containers")
     reeds = df[df["extra_meegegeven"]]
     st.dataframe(reeds[zichtbaar], use_container_width=True)
+
 
 # ─── TAB 2: KAART ─────────────────────────────────
 elif pagina == "🗺️ Kaartweergave":
