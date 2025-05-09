@@ -88,8 +88,9 @@ def execute_query(query, params=None):
 
 # ─── NAVIGATIE VIA SIDEBAR ───────────────────────
 pagina = st.sidebar.radio(
-    "🔖 Ga naar",
-    ["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"]
+    "🔖 Pagina kiezen",
+    ["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"],
+    index=0  # standaard geselecteerde pagina
 )
 
 # ─── PAGINA INSTELLINGEN ────────────────────────
