@@ -105,42 +105,54 @@ init_session_state()
 
 # ─── SIDEBAR: INSTELLINGEN & FILTERS ───────────────────
 with st.sidebar:
+    # Pagina‐navigatie
+    pagina = st.radio(
+        "🔖 Pagina kiezen",
+        ["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"],
+        index=0,
+        key="pagina"
+    )
+
     st.header("🔧 Instellingen & Filters")
-    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
+    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"], key="rol")
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
+    # Laad container‐data (voor content_type filter)
+    df_sidebar = get_df_sidebar()
+
     if rol == "Gebruiker":
+        # ── Dashboard: enkel content_type filter ───────────────────
         if pagina == "📊 Dashboard":
-            # --- Content type filter (én key voor state) ---
-            df_sidebar = get_df_sidebar()
             types = sorted(df_sidebar["content_type"].dropna().unique())
             options = ["Alle"] + types
-            # haal huidige staat op of val terug op "Alle"
+
+            # Haal vorige keuze op of gebruik "Alle"
             current = st.session_state.get("filter_content_type", "Alle")
             idx = options.index(current) if current in options else 0
 
-            sel = st.selectbox(
+            st.selectbox(
                 "🔎 Content type filter",
                 options=options,
                 index=idx,
                 key="filter_content_type",
-                help="Selecteer één type (of 'Alle' voor geen filter)."
+                help="Kies één type (of 'Alle' voor geen filter)."
             )
-            # st.session_state["filter_content_type"] = sel wordt automatisch gezet
 
+        # ── Kaartweergave: enkel route multiselect ─────────────────
         elif pagina == "🗺️ Kaartweergave":
-            # --- Route filter ---
             df_routes = get_df_routes()
             routes = sorted(df_routes["route_omschrijving"].dropna().unique())
+
+            # Haal vorige selectie op of lege lijst
             default = st.session_state.get("filter_routes", [])
-            sel = st.multiselect(
+
+            st.multiselect(
                 "📍 Routeselectie",
                 options=routes,
                 default=default,
                 key="filter_routes",
                 help="Selecteer één of meerdere routes."
             )
-            # st.session_state["filter_routes"] = sel automatisch
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
@@ -210,21 +222,22 @@ with st.sidebar:
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 if pagina == "📊 Dashboard":
-    df = get_df_sidebar().copy()
-
-    # 1) Pas content_type-filter toe uit state
-    sel_type = st.session_state.get("filter_content_type", "Alle")
-    if sel_type != "Alle":
-        df = df[df["content_type"] == sel_type]
-
-    # 2) KPI’s altijd over de volledige dataset
-    df_all = get_df_sidebar().copy()
+    # ───── KPI BEREKENING OP VOLLEDIGE DATA ─────────────────
+    df_all = df_sidebar.copy()
     df_all["fill_level"] = pd.to_numeric(df_all["fill_level"], errors="coerce")
+
+    # KPI’s over alle containers, ongeacht filters
     totaal = len(df_all)
-    vol80  = (df_all["fill_level"] >= 80).sum()
-    df_log = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum>=current_date")
-    counts = df_log["gebruiker"].value_counts().to_dict()
-    d_count = counts.get("Delft", 0); h_count = counts.get("Den Haag", 0)
+    vol80 = (df_all["fill_level"] >= 80).sum()
+    try:
+        df_log = run_query(
+            "SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum>=current_date"
+        )
+        counts = df_log["gebruiker"].value_counts().to_dict()
+        d_count = counts.get("Delft", 0)
+        h_count = counts.get("Den Haag", 0)
+    except:
+        d_count = h_count = 0
 
     k1, k2, k3 = st.columns(3)
     k1.metric("📦 Totaal containers", totaal)
@@ -493,6 +506,7 @@ elif pagina == "🗺️ Kaartweergave":
         )
     else:
         st.info("📋 Nog geen containers handmatig geselecteerd.")
+
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
 elif pagina == "📋 Route-status":
