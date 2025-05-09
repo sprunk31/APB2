@@ -94,7 +94,7 @@ def init_session_state():
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
-        "selected_type": "GFX",      # <-- standaard GFX
+        "selected_types": [],
         "gebruiker": None
     }
     for k, v in defaults.items():
@@ -102,7 +102,6 @@ def init_session_state():
             st.session_state[k] = v
 
 init_session_state()
-
 
 # ─── SIDEBAR: INSTELLINGEN & FILTERS ───────────────────
 with st.sidebar:
@@ -115,17 +114,15 @@ with st.sidebar:
     if rol == "Gebruiker":
         # Alleen content_type als we in Dashboard zitten
         if pagina == "📊 Dashboard":
-            # zonder "Alle", want je wilt alleen werkelijke content_types
             types = sorted(df_sidebar["content_type"].dropna().unique())
-
-            # let op: géén index/value, wel key
-            st.selectbox(
+            all_opts = ["Alle"] + types
+            sel_type = st.selectbox(
                 "🔎 Content type filter",
-                options=types,
-                key="selected_type",
-                help="Selecteer één content type (standaard GFX)."
+                options=all_opts,
+                index=0,
+                help="Selecteer één type (of 'Alle' voor geen filter)."
             )
-
+            st.session_state.selected_type = None if sel_type == "Alle" else sel_type
 
         # Alleen routes als we in Kaartweergave zitten
         elif pagina == "🗺️ Kaartweergave":
@@ -231,10 +228,14 @@ if pagina == "📊 Dashboard":
 
     # ───── DAT A FILTEREN VOOR TABEL ────────────────────────
     df = df_sidebar.copy()
-    df = df[
-        (df["content_type"] == st.session_state.selected_type)
-        & (df["oproute"] == "Nee")
-        ]
+
+    # 1) Filter op content_type
+    sel_type = st.session_state.selected_type
+    if sel_type:
+        df = df[
+            (df["content_type"] == sel_type) &
+            (df["oproute"] == "Nee")
+            ]
 
     # 2) Filter op routes
     sel_routes = st.session_state.geselecteerde_routes or []
