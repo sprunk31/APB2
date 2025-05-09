@@ -133,12 +133,11 @@ with st.sidebar:
                     st.session_state["routes_cache"] = df_routes_full
 
                 beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-                st.multiselect(
+                st.session_state.geselecteerde_routes = st.multiselect(
                     label="📍 Selecteer één of meerdere routes:",
                     options=beschikbare_routes,
                     default=st.session_state.get("geselecteerde_routes", []),
-                    key="geselecteerde_routes",
-                    placeholder="Klik om routes te selecteren",
+                    placeholder="Klik om routes te selecteren (blijft geselecteerd)",
                 )
             else:
                 st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
