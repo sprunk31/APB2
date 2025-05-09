@@ -120,9 +120,9 @@ with st.sidebar:
             if "selected_type" not in st.session_state or st.session_state.selected_type is None:
                 st.session_state.selected_type = ""
 
-            st.session_state.selected_type = st.selectbox(
+            st.selectbox(
                 "Content type",
-                options=[""] + types,  # lege optie bovenaan
+                options=[""] + types,
                 index=([""] + types).index(
                     st.session_state.selected_type) if st.session_state.selected_type in types else 0,
                 key="selected_type"
