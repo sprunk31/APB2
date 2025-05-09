@@ -78,16 +78,13 @@ def execute_query(query, params=None):
 st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
 st.markdown("""
 <style>
-/* Sidebar tekst kleiner en compacter */
 [data-testid="stSidebar"] * {
     font-size: 0.8rem !important;
     line-height: 1.1 !important;
 }
-/* Maak sidebar inputlabels ook klein */
 label, .st-cb, .st-af {
     font-size: 0.78rem !important;
 }
-/* Maak radio/checkboxopties compacter */
 .stRadio > div {
     gap: 0.25rem;
 }
@@ -99,10 +96,8 @@ st.title("♻️ Afvalcontainerbeheer Dashboard")
 def init_session_state():
     defaults = {
         "op_route": False,
-        "selected_type": None,
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
-        "geselecteerde_routes": [],
         "gebruiker": "Onbekend"
     }
     for k, v in defaults.items():
@@ -131,10 +126,7 @@ with st.sidebar:
         st.session_state["gebruiker"] = gebruiker
         st.markdown("### 🔎 Filters")
         types = sorted(df_sidebar["content_type"].dropna().unique())
-        if st.session_state.selected_type not in types:
-            st.session_state.selected_type = types[0] if types else None
-        st.session_state.selected_type = st.selectbox("Content type", types, index=types.index(st.session_state.selected_type))
-
+        selected_type = st.selectbox("Content type", types, key="content_type_select")
 
         st.markdown("### 🚚 Routeselectie")
         try:
@@ -147,22 +139,17 @@ with st.sidebar:
 
                 df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(lambda loc: pd.Series(_parse(loc)))
 
-                if "routes_cache" not in st.session_state:
-                    st.session_state["routes_cache"] = df_routes_full
-
                 beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-                st.session_state.geselecteerde_routes = st.multiselect(
+                geselecteerde_routes = st.multiselect(
                     label="📍 Selecteer één of meerdere routes:",
                     options=beschikbare_routes,
-                    default=st.session_state.get("geselecteerde_routes", []),
-                    placeholder="Klik om routes te selecteren (blijft geselecteerd)",
+                    placeholder="Klik om routes te selecteren",
+                    key="route_select"
                 )
             else:
                 st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
-
-
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
