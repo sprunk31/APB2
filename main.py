@@ -282,7 +282,8 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
-    df = df_sidebar.copy()
+    df = st.session_state.get("df_sidebar", pd.DataFrame()).copy()
+
     if "refresh_needed" in st.session_state and st.session_state.refresh_needed:
         df = run_query("SELECT * FROM apb_containers")
         st.session_state.refresh_needed = False
