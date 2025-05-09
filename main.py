@@ -1,5 +1,6 @@
 import streamlit as st
 st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
+
 import pandas as pd
 import json
 from sqlalchemy import create_engine, text
@@ -53,7 +54,14 @@ def get_engine():
     )
     return create_engine(db_url)
 
-# ─── GECACHEDE QUERIES ──────────────────────────
+def run_query(query, params=None):
+    with get_engine().connect() as conn:
+        return pd.read_sql(text(query), conn, params=params)
+
+def execute_query(query, params=None):
+    with get_engine().begin() as conn:
+        conn.execute(text(query), params or {})
+
 @st.cache_data(ttl=300)
 def get_df_sidebar():
     df = run_query("SELECT * FROM apb_containers")
@@ -71,40 +79,22 @@ def get_df_routes():
         WHERE r.datum >= current_date AND c.container_location IS NOT NULL
     """)
 
-@st.cache_data(ttl=300)
-def get_df_containers():
-    return run_query("""
-        SELECT container_name, container_location, content_type, fill_level, address, city
-        FROM apb_containers
-    """)
-
-def run_query(query, params=None):
-    with get_engine().connect() as conn:
-        return pd.read_sql(text(query), conn, params=params)
-
-def execute_query(query, params=None):
-    with get_engine().begin() as conn:
-        conn.execute(text(query), params or {})
-
 # ─── NAVIGATIE VIA SIDEBAR ───────────────────────
 pagina = st.sidebar.radio(
     "🔖 Pagina kiezen",
     ["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"],
-    index=0  # standaard geselecteerde pagina
+    index=0
 )
-
-# ─── PAGINA INSTELLINGEN ────────────────────────
 
 st.title("♻️ Afvalcontainerbeheer Dashboard")
 
 # ─── SESSIESTATE INITIALISATIE ───────────────────
 def init_session_state():
     defaults = {
-        "op_route": False,
-        "selected_type": None,
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
+        "selected_types": [],
         "gebruiker": None
     }
     for k, v in defaults.items():
@@ -113,55 +103,35 @@ def init_session_state():
 
 init_session_state()
 
-# ─── SIDEBAR ─────────────────────────────────────
+# ─── SIDEBAR: INSTELLINGEN & FILTERS ───────────────────
 with st.sidebar:
-    st.header("🔧 Instellingen")
+    st.header("🔧 Instellingen & Filters")
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
-    try:
-        if st.session_state.refresh_needed:
-            st.cache_data.clear()
-            st.session_state.refresh_needed = False
-
-        df_sidebar = get_df_sidebar()
-    except Exception as e:
-        st.error(f"❌ Fout bij laden van containerdata: {e}")
-        df_sidebar = pd.DataFrame()
+    df_sidebar = get_df_sidebar()
 
     if rol == "Gebruiker":
-        st.markdown("### 🔎 Filters")
+        # Content type multiselect
         types = sorted(df_sidebar["content_type"].dropna().unique())
-        if st.session_state.selected_type not in types:
-            st.session_state.selected_type = types[0] if types else None
-        st.session_state.selected_type = st.selectbox(
-            "Content type", types,
-            index=types.index(st.session_state.selected_type) if types else 0
+        sel_types = st.multiselect(
+            "🔎 Content type filter",
+            options=types,
+            default=st.session_state.selected_types or types,
+            help="Selecteer één of meerdere types (geen selectie = alle types)."
         )
+        st.session_state.selected_types = sel_types
 
-        st.markdown("### 🚚 Routeselectie")
-        try:
-            df_routes_full = get_df_routes()
-            if not df_routes_full.empty:
-                def _parse(loc):
-                    try: return tuple(map(float, loc.split(",")))
-                    except: return (None, None)
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc))
-                )
-                if "routes_cache" not in st.session_state:
-                    st.session_state["routes_cache"] = df_routes_full
-                beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-                st.session_state.geselecteerde_routes = st.multiselect(
-                    label="📍 Selecteer één of meerdere routes:",
-                    options=beschikbare_routes,
-                    default=st.session_state.get("geselecteerde_routes", []),
-                    placeholder="Klik om routes te selecteren"
-                )
-            else:
-                st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
-        except Exception as e:
-            st.error(f"❌ Fout bij ophalen van routes: {e}")
+        # Route multiselect
+        df_routes_full = get_df_routes()
+        beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
+        sel_routes = st.multiselect(
+            "📍 Routeselectie",
+            options=beschikbare_routes,
+            default=st.session_state.geselecteerde_routes or beschikbare_routes,
+            help="Selecteer één of meerdere routes."
+        )
+        st.session_state.geselecteerde_routes = sel_routes
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
@@ -169,128 +139,111 @@ with st.sidebar:
         file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
         if file1 and file2:
             try:
-                # 📥 1. Lees en verwerk bestanden
                 df1 = pd.read_excel(file1)
                 df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
                 df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
                 df2 = pd.read_excel(file2)
 
-                # 🧹 2. Filter en verrijk containerdata
                 df1 = df1[
-                    (df1['operational_state'] == 'In use') &
-                    (df1['status'] == 'In use') &
-                    (df1['on_hold'] == 'No')
+                    (df1['operational_state']=="In use") &
+                    (df1['status']=="In use") &
+                    (df1['on_hold']=="No")
                 ].copy()
                 df1["content_type"] = df1["content_type"].apply(
                     lambda x: "Glas" if "glass" in str(x).lower() else x
                 )
                 df1["combinatietelling"] = df1.groupby(
-                    ["location_code", "content_type"]
+                    ["location_code","content_type"]
                 )["content_type"].transform("count")
                 df1["gemiddeldevulgraad"] = df1.groupby(
-                    ["location_code", "content_type"]
+                    ["location_code","content_type"]
                 )["fill_level"].transform("mean")
-                df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"].values).map(
-                    {True: "Ja", False: "Nee"}
-                )
+                df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"]).map({True:"Ja",False:"Nee"})
                 df1["extra_meegegeven"] = False
+
                 cols = [
-                    "container_name", "address", "city", "location_code", "content_type",
-                    "fill_level", "container_location", "combinatietelling",
-                    "gemiddeldevulgraad", "oproute", "extra_meegegeven"
+                    "container_name","address","city","location_code","content_type",
+                    "fill_level","container_location","combinatietelling",
+                    "gemiddeldevulgraad","oproute","extra_meegegeven"
                 ]
                 df1 = df1[cols]
 
-                # 🚀 3. Tabel legen en data snel opnieuw invoegen
                 engine = get_engine()
                 with engine.begin() as conn:
                     conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
                 df1.to_sql("apb_containers", engine, if_exists="append", index=False)
 
-                # 📦 4. Verwerk routes
                 df2 = df2.rename(columns={
-                    "Route Omschrijving": "route_omschrijving",
-                    "Omschrijving": "omschrijving",
-                    "Datum": "datum"
-                })
-                df2 = df2[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
+                    "Route Omschrijving":"route_omschrijving",
+                    "Omschrijving":"omschrijving",
+                    "Datum":"datum"
+                })[["route_omschrijving","omschrijving","datum"]].drop_duplicates()
                 with engine.begin() as conn:
                     conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
                 df2.to_sql("apb_routes", engine, if_exists="append", index=False)
 
-                # 🗺️ 5. Route-cache bijwerken
-                df_routes_full = run_query("""
-                    SELECT r.route_omschrijving, r.omschrijving AS container_name,
-                           c.container_location, c.content_type
-                    FROM apb_routes r
-                    JOIN apb_containers c ON r.omschrijving = c.container_name
-                    WHERE c.container_location IS NOT NULL
-                """)
-                def _parse(loc):
-                    try: return tuple(map(float, loc.split(",")))
-                    except: return (None, None)
-                df_routes_full[["r_lat", "r_lon"]] = df_routes_full["container_location"].apply(
-                    lambda loc: pd.Series(_parse(loc))
-                )
-                st.session_state["routes_cache"] = df_routes_full
-
-                # 🧮 6. Log aantal volle containers
-                aantal_volle = int((df1["fill_level"] >= 80).sum())
+                # Log totaal
+                aantal_volle = int((df1["fill_level"]>=80).sum())
                 vandaag = datetime.now().date()
                 with engine.begin() as conn:
                     conn.execute(text("""
-                        INSERT INTO apb_logboek_totaal (datum, aantal_volle_bakken)
-                        VALUES (:datum, :aantal)
-                        ON CONFLICT (datum)
-                        DO UPDATE SET aantal_volle_bakken = EXCLUDED.aantal_volle_bakken
-                    """), {"datum": vandaag, "aantal": aantal_volle})
+                        INSERT INTO apb_logboek_totaal(datum,aantal_volle_bakken)
+                        VALUES(:datum,:aantal)
+                        ON CONFLICT(datum) DO UPDATE
+                          SET aantal_volle_bakken = EXCLUDED.aantal_volle_bakken
+                    """), {"datum":vandaag,"aantal":aantal_volle})
 
-                # ✅ 7. Afronden
                 st.success("✅ Gegevens succesvol geüpload en verwerkt.")
                 st.session_state.refresh_needed = True
+
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
-
-
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 if pagina == "📊 Dashboard":
     df = df_sidebar.copy()
-    if st.session_state.refresh_needed:
-        df = run_query("SELECT * FROM apb_containers")
-        st.session_state.refresh_needed = False
+
+    # Filter content types
+    sel_types = st.session_state.selected_types or []
+    if sel_types:
+        df = df[df["content_type"].isin(sel_types)]
+
+    # Filter routes
+    sel_routes = st.session_state.geselecteerde_routes or []
+    if sel_routes:
+        df_routes_full = get_df_routes()
+        names_on_routes = df_routes_full[
+            df_routes_full["route_omschrijving"].isin(sel_routes)
+        ]["container_name"].unique()
+        df = df[df["container_name"].isin(names_on_routes)]
 
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
     df["extra_meegegeven"] = df["extra_meegegeven"].astype(bool)
 
     # KPI's
     try:
-        df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum >= current_date")
-        counts = df_logboek["gebruiker"].value_counts().to_dict()
-        delft_count = counts.get("Delft", 0)
-        denhaag_count = counts.get("Den Haag", 0)
+        df_log = run_query(
+            "SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum>=current_date"
+        )
+        counts = df_log["gebruiker"].value_counts().to_dict()
+        d_count = counts.get("Delft",0)
+        h_count = counts.get("Den Haag",0)
     except:
-        delft_count = denhaag_count = 0
+        d_count = h_count = 0
 
     k1, k2, k3 = st.columns(3)
     k1.metric("📦 Totaal containers", len(df))
-    k2.metric("📊 Vulgraad ≥ 80%", (df["fill_level"] >= 80).sum())
-    k3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
-
-    # Filters
-    df = df[df["content_type"] == st.session_state.selected_type]
-    df = df[df["oproute"] == ("Ja" if st.session_state.op_route else "Nee")]
+    k2.metric("📊 Vulgraad ≥ 80%", (df["fill_level"]>=80).sum())
+    k3.metric("🧍 Extra meegegeven (Delft/Den Haag)", f"{d_count} / {h_count}")
 
     zichtbaar = [
-        "container_name", "address", "city", "location_code", "content_type",
-        "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
+        "container_name","address","city","location_code","content_type",
+        "fill_level","combinatietelling","gemiddeldevulgraad","oproute","extra_meegegeven"
     ]
 
-    # Bewerkbare containers
     bewerkbaar = df[~df["extra_meegegeven"]].copy()
     bewerkbaar = bewerkbaar[
-        (bewerkbaar["gemiddeldevulgraad"] > 45) |
-        (bewerkbaar["fill_level"] > 80)
+        (bewerkbaar["gemiddeldevulgraad"]>45)|(bewerkbaar["fill_level"]>80)
     ].sort_values("gemiddeldevulgraad", ascending=False)
 
     st.subheader("✏️ Bewerkbare containers")
@@ -305,46 +258,50 @@ if pagina == "📊 Dashboard":
     )
     updated = grid["data"].copy()
     updated["extra_meegegeven"] = updated["extra_meegegeven"].astype(bool)
-    st.session_state.extra_meegegeven_tijdelijk = updated[updated["extra_meegegeven"]]["container_name"].tolist()
+    st.session_state.extra_meegegeven_tijdelijk = (
+        updated[updated["extra_meegegeven"]]["container_name"].tolist()
+    )
 
     if st.button("✅ Wijzigingen toepassen en loggen"):
         gewijzigde = updated[updated["extra_meegegeven"]]
         if not gewijzigde.empty:
             try:
-                df_log = run_query("SELECT container_name, datum FROM apb_logboek_afvalcontainers")
-                df_log["datum"] = pd.to_datetime(df_log["datum"], errors="coerce")
+                df_log2 = run_query(
+                    "SELECT container_name,datum FROM apb_logboek_afvalcontainers"
+                )
+                df_log2["datum"] = pd.to_datetime(df_log2["datum"], errors="coerce")
             except:
-                df_log = pd.DataFrame(columns=["container_name", "datum"])
+                df_log2 = pd.DataFrame(columns=["container_name","datum"])
 
             vandaag = datetime.now().date()
-            count = 0
+            cnt = 0
             for _, row in gewijzigde.iterrows():
-                if ((df_log["container_name"] == row["container_name"]) &
-                    (df_log["datum"].dt.date == vandaag)).any():
+                if ((df_log2["container_name"]==row["container_name"]) &
+                    (df_log2["datum"].dt.date==vandaag)).any():
                     continue
                 nm = row["container_name"].strip()
                 execute_query(
-                    "UPDATE apb_containers SET extra_meegegeven = TRUE WHERE TRIM(container_name) = :naam",
-                    {"naam": nm}
+                    "UPDATE apb_containers SET extra_meegegeven=TRUE WHERE TRIM(container_name)=:naam",
+                    {"naam":nm}
                 )
                 execute_query("""
                     INSERT INTO apb_logboek_afvalcontainers
-                    (container_name, address, city, location_code, content_type, fill_level, datum, gebruiker)
-                    VALUES (:a, :b, :c, :d, :e, :f, :g, :h)
+                    (container_name,address,city,location_code,content_type,fill_level,datum,gebruiker)
+                    VALUES(:a,:b,:c,:d,:e,:f,:g,:h)
                 """, {
-                    "a": row["container_name"],
-                    "b": row["address"],
-                    "c": row["city"],
-                    "d": row["location_code"],
-                    "e": row["content_type"],
-                    "f": row["fill_level"],
-                    "g": datetime.now(),
-                    "h": st.session_state.gebruiker
+                    "a":row["container_name"],
+                    "b":row["address"],
+                    "c":row["city"],
+                    "d":row["location_code"],
+                    "e":row["content_type"],
+                    "f":row["fill_level"],
+                    "g":datetime.now(),
+                    "h":st.session_state.gebruiker
                 })
-                count += 1
+                cnt += 1
 
-            if count:
-                st.success(f"✔️ {count} containers gelogd en bijgewerkt.")
+            if cnt:
+                st.success(f"✔️ {cnt} containers gelogd en bijgewerkt.")
                 st.session_state.refresh_needed = True
                 st.rerun()
             else:
