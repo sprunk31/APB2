@@ -88,7 +88,7 @@ def execute_query(query, params=None):
 
 # ─── NAVIGATIE VIA QUERY PARAMS EN MARKDOWN ───────────────────────
 # 1) Lees de huidige pagina uit de URL-query
-params = st.get_query_params()
+params = st.experimental_get_query_params()
 pagina = params.get("pagina", ["dashboard"])[0]
 
 # 2) Bouw je mapping van labels → slug
