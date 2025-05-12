@@ -208,6 +208,9 @@ with st.sidebar:
                 engine = get_engine()
                 with engine.begin() as conn:
                     conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
+                # Voeg datumstempel toe vóór upload
+                df1["datum_ingelezen"] = datetime.now().date()
+                # Upload naar de database
                 df1.to_sql("apb_containers", engine, if_exists="append", index=False)
 
                 # 📦 4. Verwerk routes
@@ -261,7 +264,11 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 with tab1:
     df = df_sidebar.copy()
     if st.session_state.refresh_needed:
-        df = run_query("SELECT * FROM apb_containers")
+        df = run_query("""
+            SELECT *
+            FROM apb_containers
+            WHERE datum_ingelezen = CURRENT_DATE
+        """)
         st.session_state.refresh_needed = False
 
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
