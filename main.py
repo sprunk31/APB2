@@ -146,19 +146,27 @@ with st.sidebar:
         try:
             df_routes_full = get_df_routes()
             if not df_routes_full.empty:
-                beschikbare_routes = sorted(df_routes_full["route_omschrijving"].dropna().unique())
-                if "geselecteerde_routes" not in st.session_state:
-                    st.session_state.geselecteerde_routes = []
-                # Routes filter as checkboxes in an expander
+                # Groepeer en tel het aantal containers per routeomschrijving
+                route_counts = df_routes_full["route_omschrijving"].value_counts().to_dict()
+
+                # Maak een lijst met labels zoals "Route A (12)"
+                beschikbare_routes = sorted(route_counts.items())  # lijst van (route, count)
+                label_to_route = {f"{route} ({count})": route for route, count in beschikbare_routes}
+
+                # Toon checkboxen met labels
                 with st.expander("Selecteer routes", expanded=False):
                     geselecteerde = []
-                    for route in beschikbare_routes:
+                    for label, route in label_to_route.items():
                         checked = st.checkbox(
-                            label=route,
+                            label=label,
                             value=(route in st.session_state.geselecteerde_routes),
                             key=f"cb_route_{route}"
                         )
                         if checked:
+                            geselecteerde.append(route)
+                    st.session_state.geselecteerde_routes = geselecteerde
+
+                    if checked:
                             geselecteerde.append(route)
                     st.session_state.geselecteerde_routes = geselecteerde
             else:
