@@ -130,7 +130,7 @@ with st.sidebar:
         # Default: geen types geselecteerd bij opstarten
         if "selected_types" not in st.session_state:
             st.session_state.selected_types = []
-        with st.expander("Content types", expanded=True):
+        with st.expander("Content types", expanded=False):
             selected_types = []
             for t in types:
                 checked = st.checkbox(
