@@ -379,7 +379,10 @@ with tab2:
             JOIN apb_containers c ON r.omschrijving = c.container_name
             WHERE c.container_location IS NOT NULL
         """)
-        df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
+        df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True)
+        df["r_lat"] = pd.to_numeric(df["r_lat"], errors="coerce")
+        df["r_lon"] = pd.to_numeric(df["r_lon"], errors="coerce")
+        df = df.dropna(subset=["r_lat", "r_lon"])  # ← belangrijk
         return df
 
     @st.cache_data(ttl=300)
