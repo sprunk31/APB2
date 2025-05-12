@@ -267,7 +267,7 @@ with tab1:
         df = run_query("""
             SELECT *
             FROM apb_containers
-            
+            WHERE datum_ingelezen = CURRENT_DATE
         """)
         st.session_state.refresh_needed = False
 
