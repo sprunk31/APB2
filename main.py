@@ -105,11 +105,31 @@ def init_session_state():
 
 init_session_state()
 
+# ─── DATA VALIDATIE: Forceer Upload indien data verouderd ───
+try:
+    df_check_datum = run_query("SELECT MAX(datum_ingelezen) as laatste_datum FROM apb_containers")
+    laatste_datum = pd.to_datetime(df_check_datum.loc[0, "laatste_datum"]).date()
+    vandaag = datetime.now().date()
+
+    if laatste_datum < vandaag:
+        st.session_state.force_upload = True
+        st.warning(f"⚠️ De data is verouderd (laatste ingelezen: {laatste_datum}). Ga eerst naar 'Upload'.")
+    else:
+        st.session_state.force_upload = False
+except:
+    st.session_state.force_upload = True
+    st.warning("⚠️ Kon datum van laatste upload niet bepalen. Upload eerst data.")
+
 ## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
+
+    if st.session_state.get("force_upload"):
+        rol = "Upload"
+        st.markdown("❗ **Upload vereist**: de data is verouderd. De interface is tijdelijk beperkt tot upload.")
+        st.session_state.refresh_needed = False
 
     # Clear cache if needed
     try:
