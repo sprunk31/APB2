@@ -94,6 +94,7 @@ def init_session_state():
     defaults = {
         "op_route": False,
         "selected_type": None,
+        "selected_types": [],  # ← deze regel is nieuw en voorkomt de fout
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
@@ -102,6 +103,7 @@ def init_session_state():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
 
 init_session_state()
 
