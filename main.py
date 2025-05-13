@@ -98,12 +98,13 @@ def init_session_state():
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
         "gebruiker": None,
-        "laatste_cache_geschoond": None  # ← voeg dit toe
+        "laatste_cache_geschoond": None  # ← BELANGRIJK
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
+init_session_state()
 
 ## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
@@ -119,7 +120,9 @@ with st.sidebar:
             laatst_ingelezen = laatst_ingelezen.date()
 
         vandaag = datetime.now().date()
-        if laatst_ingelezen < vandaag and st.session_state.laatste_cache_geschoond != vandaag:
+
+        # Cache legen alleen als dit vandaag nog niet is gedaan
+        if laatst_ingelezen < vandaag and st.session_state.get("laatste_cache_geschoond") != vandaag:
             st.cache_data.clear()
             st.session_state.laatste_cache_geschoond = vandaag
             st.warning("📦 Cache is automatisch geleegd wegens verouderde data.")
