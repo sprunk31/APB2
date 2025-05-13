@@ -118,6 +118,16 @@ with st.sidebar:
             st.session_state.refresh_needed = False
 
         df_sidebar = get_df_sidebar()
+
+        # ⚠️ Controle op verouderde data
+        try:
+            latest_datum = run_query("SELECT MAX(datum_ingelezen) AS max_datum FROM apb_containers")["max_datum"].iloc[
+                0]
+            if pd.to_datetime(latest_datum).date() < datetime.now().date():
+                st.warning("⚠️ De ingelezen data is verouderd. Laad nieuwe gegevens in via de Upload-sectie.")
+        except Exception as e:
+            st.error(f"❌ Kan datum controleren: {e}")
+
     except Exception as e:
         st.error(f"❌ Fout bij laden van containerdata: {e}")
         df_sidebar = pd.DataFrame()
