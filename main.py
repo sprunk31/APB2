@@ -74,7 +74,7 @@ def get_df_routes():
 def get_df_containers():
     return run_query("""
         SELECT container_name, container_location, content_type, fill_level, address, city
-        FROM apb_containers
+        FROM apb_containers where datum >= current_date
     """)
 
 def run_query(query, params=None):
