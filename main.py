@@ -97,19 +97,34 @@ def init_session_state():
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
-        "gebruiker": None
+        "gebruiker": None,
+        "laatste_cache_geschoond": None  # ← voeg dit toe
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-init_session_state()
 
 ## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
+
+    try:
+        laatst_ingelezen = run_query("SELECT MAX(datum_ingelezen) FROM apb_containers").iloc[0, 0]
+        if isinstance(laatst_ingelezen, str):
+            laatst_ingelezen = datetime.strptime(laatst_ingelezen, "%Y-%m-%d").date()
+        if isinstance(laatst_ingelezen, datetime):
+            laatst_ingelezen = laatst_ingelezen.date()
+
+        vandaag = datetime.now().date()
+        if laatst_ingelezen < vandaag and st.session_state.laatste_cache_geschoond != vandaag:
+            st.cache_data.clear()
+            st.session_state.laatste_cache_geschoond = vandaag
+            st.warning("📦 Cache is automatisch geleegd wegens verouderde data.")
+    except Exception as e:
+        st.error(f"❌ Fout bij controleren van cache: {e}")
 
     try:
         df_sidebar = get_df_sidebar()
