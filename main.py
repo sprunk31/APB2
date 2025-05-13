@@ -272,11 +272,13 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 with tab1:
     df = df_sidebar.copy()
     if st.session_state.refresh_needed:
+        # Altijd actuele data ophalen met datumfilter
         df = run_query("""
             SELECT *
             FROM apb_containers
             WHERE datum_ingelezen::date = CURRENT_DATE
         """)
+
         st.session_state.refresh_needed = False
 
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
