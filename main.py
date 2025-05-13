@@ -74,7 +74,7 @@ def get_df_routes():
 def get_df_containers():
     return run_query("""
         SELECT container_name, container_location, content_type, fill_level, address, city
-        FROM apb_containers where datum_ingelezen >= current_date
+        FROM apb_containers
     """)
 
 def run_query(query, params=None):
@@ -118,16 +118,6 @@ with st.sidebar:
             st.session_state.refresh_needed = False
 
         df_sidebar = get_df_sidebar()
-
-        # ⚠️ Controle op verouderde data
-        try:
-            latest_datum = run_query("SELECT MAX(datum_ingelezen) AS max_datum FROM apb_containers")["max_datum"].iloc[
-                0]
-            if pd.to_datetime(latest_datum).date() < datetime.now().date():
-                st.warning("⚠️ De ingelezen data is verouderd. Laad nieuwe gegevens in via de Upload-sectie.")
-        except Exception as e:
-            st.error(f"❌ Kan datum controleren: {e}")
-
     except Exception as e:
         st.error(f"❌ Fout bij laden van containerdata: {e}")
         df_sidebar = pd.DataFrame()
@@ -282,13 +272,11 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 with tab1:
     df = df_sidebar.copy()
     if st.session_state.refresh_needed:
-        # Altijd actuele data ophalen met datumfilter
         df = run_query("""
             SELECT *
             FROM apb_containers
             WHERE datum_ingelezen::date = CURRENT_DATE
         """)
-
         st.session_state.refresh_needed = False
 
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
