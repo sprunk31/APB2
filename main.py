@@ -42,40 +42,6 @@ if st.session_state.authenticated and st.session_state.get("gebruiker") is None:
             st.rerun()
     st.stop()
 
-# ─── STICKY HEADER & TABS CSS ────────────────────────────────────────────────────
-st.markdown(
-    """
-    <style>
-    /* 1) Maak ALLE h1 (jouw st.title) sticky */
-    h1 {
-      position: sticky !important;
-      top: 0;
-      margin: 0;                /* voorkom extra spacing */
-      background: white;
-      z-index: 1000;
-      padding: 0.5rem 0;
-      border-bottom: 1px solid #ddd;
-    }
-    /* 2) Maak de tab-bar sticky net onder je titel */
-    div[role="tablist"] {
-      position: sticky !important;
-      top: 3.5rem;             /* hoogte van je titel + rand */
-      background: white;
-      z-index: 999;
-      padding-bottom: 0.25rem;
-      border-bottom: 1px solid #ddd;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# ─── NU JE TITEL EN TABS =================================================================
-st.title("♻️ Afvalcontainerbeheer Dashboard")
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
-
-
 # ─── DATABASE ────────────────────────────────────
 @st.cache_resource
 def get_engine():
@@ -121,9 +87,38 @@ def execute_query(query, params=None):
     with get_engine().begin() as conn:
         conn.execute(text(query), params or {})
 
-# ─── PAGINA INSTELLINGEN ────────────────────────
-st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
+# ─── STICKY HEADER & TABS CSS ────────────────────────────────────────────────────
+st.markdown(
+    """
+    <style>
+    /* 1) Maak ALLE h1 (jouw st.title) sticky */
+    h1 {
+      position: sticky !important;
+      top: 0;
+      margin: 0;                /* voorkom extra spacing */
+      background: white;
+      z-index: 1000;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #ddd;
+    }
+    /* 2) Maak de tab-bar sticky net onder je titel */
+    div[role="tablist"] {
+      position: sticky !important;
+      top: 3.5rem;             /* hoogte van je titel + rand */
+      background: white;
+      z-index: 999;
+      padding-bottom: 0.25rem;
+      border-bottom: 1px solid #ddd;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
+# ─── NU JE TITEL EN TABS =================================================================
+st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
+st.title("♻️ Afvalcontainerbeheer Dashboard")
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
 
 # ─── SESSIESTATE INITIALISATIE ───────────────────
 def init_session_state():
@@ -323,6 +318,38 @@ with st.sidebar:
 
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
 
+# ─── STICKY HEADER & TABS CSS ────────────────────────────────────────────────────
+st.markdown(
+    """
+    <style>
+    /* 1) Maak ALLE h1 (jouw st.title) sticky */
+    h1 {
+      position: sticky !important;
+      top: 0;
+      margin: 0;                /* voorkom extra spacing */
+      background: white;
+      z-index: 1000;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #ddd;
+    }
+    /* 2) Maak de tab-bar sticky net onder je titel */
+    div[role="tablist"] {
+      position: sticky !important;
+      top: 3.5rem;             /* hoogte van je titel + rand */
+      background: white;
+      z-index: 999;
+      padding-bottom: 0.25rem;
+      border-bottom: 1px solid #ddd;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ─── NU JE TITEL EN TABS =================================================================
+st.title("♻️ Afvalcontainerbeheer Dashboard")
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
