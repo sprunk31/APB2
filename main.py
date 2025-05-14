@@ -131,7 +131,7 @@ with st.sidebar:
         # Default: geen types geselecteerd bij opstarten
         if "selected_types" not in st.session_state:
             st.session_state.selected_types = []
-        with st.expander("Content types", expanded=False):
+        with st.expander("Content types", expanded=True):
             selected_types = []
             for t in types:
                 checked = st.checkbox(
@@ -155,7 +155,7 @@ with st.sidebar:
                 label_to_route = {f"{route} ({count})": route for route, count in beschikbare_routes}
 
                 # Toon checkboxen met labels
-                with st.expander("Selecteer routes", expanded=False):
+                with st.expander("Selecteer routes", expanded=True):
                     geselecteerde = []
                     for label, route in label_to_route.items():
                         checked = st.checkbox(
