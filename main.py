@@ -52,7 +52,7 @@ def get_engine():
     )
     return create_engine(db_url)
 
-# ─── QUERIES ─────────────────────────────────────
+# ─── GECACHEDE QUERIES ──────────────────────────
 @st.cache_data(ttl=300)
 def get_df_sidebar():
     df = run_query("SELECT * FROM apb_containers")
@@ -68,13 +68,15 @@ def get_df_routes():
         FROM apb_routes r
         JOIN apb_containers c ON r.omschrijving = c.container_name
         WHERE r.datum >= current_date AND c.container_location IS NOT NULL
-    """ )
+    """)
 
 @st.cache_data(ttl=300)
 def get_df_containers():
+    # Alleen containers ingelezen vandaag of later
     return run_query("""
         SELECT container_name, container_location, content_type, fill_level, address, city
         FROM apb_containers
+        WHERE datum_ingelezen >= current_date
     """)
 
 def run_query(query, params=None):
@@ -94,6 +96,7 @@ def init_session_state():
     defaults = {
         "op_route": False,
         "selected_types": [],
+        "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
         "gebruiker": st.session_state.get("gebruiker")
@@ -104,24 +107,25 @@ def init_session_state():
 
 init_session_state()
 
-# ─── LOAD SIDEBAR DATA ───────────────────────────
-try:
-    if st.session_state.get("refresh_needed", False):
-        st.cache_data.clear()
-        st.session_state.refresh_needed = False
-    df_sidebar = get_df_sidebar()
-except Exception as e:
-    st.error(f"❌ Fout bij laden van containerdata: {e}")
-    df_sidebar = pd.DataFrame()
-
 ## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
+    # Cache vernieuwen als nodig
+    try:
+        if st.session_state.refresh_needed:
+            st.cache_data.clear()
+            st.session_state.refresh_needed = False
+
+        df_sidebar = get_df_sidebar()
+    except Exception as e:
+        st.error(f"❌ Fout bij laden van containerdata: {e}")
+        df_sidebar = pd.DataFrame()
+
     if rol == "Gebruiker":
-        # Filters and routes selection unchanged
+        # … bestaande filter- en route-logica …
         pass
 
     elif rol == "Upload":
@@ -131,8 +135,57 @@ with st.sidebar:
         process = st.button("🗄️ Verwerk en laad data")
         if process and file1 and file2:
             try:
+                # 1) Leeg de cache
                 st.cache_data.clear()
-                # (upload logic unchanged)
+
+                # 2) Lees en verwerk de uploads
+                df1 = pd.read_excel(file1)
+                df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
+                df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
+                df2 = pd.read_excel(file2)
+
+                df1 = df1[
+                    (df1['operational_state']=='In use') &
+                    (df1['status']=='In use') &
+                    (df1['on_hold']=='No')
+                ].copy()
+                df1["content_type"] = df1["content_type"].apply(
+                    lambda x: "Glas" if "glass" in str(x).lower() else x
+                )
+                df1["combinatietelling"] = df1.groupby(
+                    ["location_code","content_type"]
+                )["content_type"].transform("count")
+                df1["gemiddeldevulgraad"] = df1.groupby(
+                    ["location_code","content_type"]
+                )["fill_level"].transform("mean")
+                df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"]).map(
+                    {True: "Ja", False: "Nee"}
+                )
+                df1["extra_meegegeven"] = False
+
+                cols = [
+                    "container_name","address","city","location_code","content_type",
+                    "fill_level","container_location","combinatietelling",
+                    "gemiddeldevulgraad","oproute","extra_meegegeven"
+                ]
+                df1 = df1[cols]
+                df1["datum_ingelezen"] = datetime.now().date()
+
+                engine = get_engine()
+                with engine.begin() as conn:
+                    conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
+                df1.to_sql("apb_containers", engine, if_exists="append", index=False)
+
+                df2 = df2.rename(columns={
+                    "Route Omschrijving":"route_omschrijving",
+                    "Omschrijving":"omschrijving",
+                    "Datum":"datum"
+                })[["route_omschrijving","omschrijving","datum"]].drop_duplicates()
+                with engine.begin() as conn:
+                    conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
+                df2.to_sql("apb_routes", engine, if_exists="append", index=False)
+
+                # Markeer voor herladen in hoofd-app
                 st.session_state.refresh_needed = True
                 st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
             except Exception as e:
@@ -146,11 +199,13 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 with tab1:
     df = df_sidebar.copy()
     if st.session_state.refresh_needed:
+        # Altijd actuele data ophalen met datumfilter
         df = run_query("""
             SELECT *
             FROM apb_containers
             WHERE datum_ingelezen::date = CURRENT_DATE
         """)
+
         st.session_state.refresh_needed = False
 
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
