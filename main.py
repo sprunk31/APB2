@@ -500,9 +500,9 @@ with tab2:
             "ScatterplotLayer",
             data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
-            get_fill_color=[0, 0, 0, 220],
+            get_fill_color=[255, 255, 255, 220],
             stroked=True,
-            get_line_color=[255, 255, 255],            # zwarte outline
+            get_line_color=[0, 0, 0],            # zwarte outline
             line_width_min_pixels=2,             # dun lijntje
             radiusMinPixels=5,
             radiusMaxPixels=10,
