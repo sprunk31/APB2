@@ -482,7 +482,7 @@ with tab2:
             get_position='[lon, lat]',
             get_fill_color=[0, 0, 0, 220],
             get_line_color=[0, 0, 0],            # zwarte outline
-            line_width_min_pixels=1,             # dun lijntje
+            line_width_min_pixels=2,             # dun lijntje
             radiusMinPixels=5,
             radiusMaxPixels=10,
             pickable=True
