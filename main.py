@@ -461,7 +461,7 @@ with tab2:
             get_fill_color=kleur_map[route],
             stroked=True,
             get_line_color=[0, 0, 0],            # zwarte outline
-            line_width_min_pixels=5,             # dun lijntje
+            line_width_min_pixels=2,             # dun lijntje
             radiusMinPixels=4,
             radiusMaxPixels=6,
             pickable=True
