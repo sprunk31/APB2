@@ -434,7 +434,34 @@ with tab2:
     sel_names = st.session_state.extra_meegegeven_tijdelijk
     df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
 
-    # (find_nearest_route blijft gelijk)
+
+    def find_nearest_route(lat, lon, routes_df):
+        # bereken alle afstanden en pak de index van de kleinste
+        dists = routes_df.apply(
+            lambda r: geodesic((lat, lon), (r["r_lat"], r["r_lon"])).meters,
+            axis=1
+        )
+        return routes_df.loc[dists.idxmin(), "route_omschrijving"]
+
+
+    # voeg de kolom toe
+    if not df_hand.empty:
+        df_hand = df_hand.dropna(subset=["lat", "lon"]).copy()
+        df_hand["dichtstbijzijnde_route"] = df_hand.apply(
+            lambda row: find_nearest_route(row["lat"], row["lon"], df_routes),
+            axis=1
+        )
+
+        # nu kun je veilig je tooltiplabel aanmaken:
+        df_hand["tooltip_label"] = df_hand.apply(
+            lambda row: f"""
+                <b>🖤 {row['container_name']}</b><br>
+                Type: {row['content_type']}<br>
+                Vulgraad: {row['fill_level']}%<br>
+                Route: {row['dichtstbijzijnde_route']}<br>
+                Locatie: {row['address']}, {row['city']}
+            """, axis=1
+        )
 
     kleuren = [
         [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
