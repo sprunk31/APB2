@@ -459,6 +459,7 @@ with tab2:
             data=df_r,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
+            stroked=True,
             get_line_color=[0, 0, 0],            # zwarte outline
             line_width_min_pixels=5,             # dun lijntje
             radiusMinPixels=4,
@@ -481,6 +482,7 @@ with tab2:
             data=df_hand.dropna(subset=["lat", "lon"]),
             get_position='[lon, lat]',
             get_fill_color=[0, 0, 0, 220],
+            stroked=True,
             get_line_color=[0, 0, 0],            # zwarte outline
             line_width_min_pixels=2,             # dun lijntje
             radiusMinPixels=5,
