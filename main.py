@@ -107,20 +107,13 @@ def init_session_state():
 
 init_session_state()
 
-def get_df_routes():
-    return run_query("""
-        SELECT route_omschrijving, COUNT(*) AS count
-        FROM apb_routes
-        WHERE datum = CURRENT_DATE
-        GROUP BY route_omschrijving
-    """)
-
-# ─── SIDEBAR ─────────────────────────────────────
+## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
+    # Cache vernieuwen als nodig
     try:
         if st.session_state.refresh_needed:
             st.cache_data.clear()
@@ -133,7 +126,9 @@ with st.sidebar:
 
     if rol == "Gebruiker":
         st.markdown("### 🔎 Filters")
+        # Content type filter as checkboxes in an expander
         types = sorted(df_sidebar["content_type"].dropna().unique())
+        # Default: geen types geselecteerd bij opstarten
         if "selected_types" not in st.session_state:
             st.session_state.selected_types = []
         with st.expander("Content types", expanded=True):
@@ -152,11 +147,15 @@ with st.sidebar:
         try:
             df_routes_full = get_df_routes()
             if not df_routes_full.empty:
+                # Groepeer en tel het aantal containers per routeomschrijving
                 route_counts = dict(zip(df_routes_full["route_omschrijving"], df_routes_full["count"]))
 
-                beschikbare_routes = sorted(route_counts.items())
+
+                # Maak een lijst met labels zoals "Route A (12)"
+                beschikbare_routes = sorted(route_counts.items())  # lijst van (route, count)
                 label_to_route = {f"{route} ({count})": route for route, count in beschikbare_routes}
 
+                # Toon checkboxen met labels
                 with st.expander("Selecteer routes", expanded=True):
                     geselecteerde = []
                     for label, route in label_to_route.items():
@@ -168,11 +167,15 @@ with st.sidebar:
                         if checked:
                             geselecteerde.append(route)
                     st.session_state.geselecteerde_routes = geselecteerde
+
+                    if checked:
+                            geselecteerde.append(route)
+                    st.session_state.geselecteerde_routes = geselecteerde
             else:
                 st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
-        pass
+            pass
 
 
     elif rol == "Upload":
@@ -203,10 +206,12 @@ with st.sidebar:
 
                 df2 = pd.read_excel(file2)
 
+                df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
+
                 df1 = df1[
-                    (df1['operational_state'].isin(['In use', 'Issue detected'])) &
-                    (df1['status'] == 'In use') &
-                    (df1['on_hold'] == 'No')
+                    (df1['operational_state'].isin(['in use', 'issue detected'])) &
+                    (df1['status'].str.strip().str.lower() == 'in use') &
+                    (df1['on_hold'].str.strip().str.lower() == 'no')
                     ].copy()
 
                 df1["content_type"] = df1["content_type"].apply(
