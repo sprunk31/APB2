@@ -414,6 +414,114 @@ with tab2:
             del st.session_state.proposed_routes
             st.info('Optimalisatie geannuleerd.')
 
+    df_routes = load_routes_for_map()
+    df_containers = load_all_containers()
+    sel_routes = st.session_state.geselecteerde_routes
+    sel_names = st.session_state.extra_meegegeven_tijdelijk
+    df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
+
+    def find_nearest_route(r):
+        if pd.isna(r["lat"]) or pd.isna(r["lon"]):
+            return None
+        radius = 0.15
+        while True:
+            matches = [
+                rp["route_omschrijving"] for _, rp in df_routes.iterrows()
+                if rp["content_type"] == r["content_type"]
+                and geodesic((r["lat"], r["lon"]), (rp["r_lat"], rp["r_lon"])).km <= radius
+            ]
+            if matches:
+                return Counter(matches).most_common(1)[0][0]
+            radius += 0.1
+            if radius > 5:
+                return None
+
+    if not df_hand.empty:
+        df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
+    else:
+        df_hand["dichtstbijzijnde_route"] = None
+
+    kleuren = [
+        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
+        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+    ]
+    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
+
+    layers = []
+    for route in sel_routes:
+        df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
+        df_r["tooltip_label"] = df_r.apply(
+            lambda row: f"""
+                <b>🧺 {row['container_name']}</b><br>
+                Type: {row['content_type']}<br>
+                Vulgraad: {row['fill_level']}%<br>
+                Route: {row['route_omschrijving'] or "—"}<br>
+                Locatie: {row['address']}, {row['city']}
+            """, axis=1
+        )
+        layers.append(pdk.Layer(
+            "ScatterplotLayer",
+            data=df_r,
+            get_position='[r_lon, r_lat]',
+            get_fill_color=kleur_map[route],
+            stroked=True,
+            get_line_color=[0, 0, 0],            # zwarte outline
+            line_width_min_pixels=2,             # dun lijntje
+            radiusMinPixels=4,
+            radiusMaxPixels=6,
+            pickable=True
+        ))
+
+    if not df_hand.empty:
+        df_hand["tooltip_label"] = df_hand.apply(
+            lambda row: f"""
+                <b>🖤 {row['container_name']}</b><br>
+                Type: {row['content_type']}<br>
+                Vulgraad: {row['fill_level']}%<br>
+                Route: {row['dichtstbijzijnde_route'] or "—"}<br>
+                Locatie: {row['address']}, {row['city']}
+            """, axis=1
+        )
+        layers.append(pdk.Layer(
+            "ScatterplotLayer",
+            data=df_hand.dropna(subset=["lat", "lon"]),
+            get_position='[lon, lat]',
+            get_fill_color=[0, 0, 0, 220],
+            stroked=True,
+            radiusMinPixels=5,
+            radiusMaxPixels=10,
+            pickable=True
+        ))
+
+    tooltip = {
+        "html": "{tooltip_label}",
+        "style": {"backgroundColor": "steelblue", "color": "white"}
+    }
+
+    if not df_containers.empty:
+        midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
+    else:
+        midpoint = [52.0, 4.3]
+
+    st.pydeck_chart(pdk.Deck(
+        map_style="mapbox://styles/mapbox/streets-v12",
+        initial_view_state=pdk.ViewState(
+            latitude=midpoint[0], longitude=midpoint[1],
+            zoom=11, pitch=0
+        ),
+        layers=layers,
+        tooltip=tooltip
+    ))
+
+    if not df_hand.empty:
+        st.markdown("### 📋 Handmatig geselecteerde containers")
+        st.dataframe(df_hand[[
+            "container_name", "address", "city", "content_type",
+            "fill_level", "dichtstbijzijnde_route"
+        ]], use_container_width=True)
+    else:
+        st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
+
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
 with tab3:
