@@ -491,7 +491,7 @@ with tab2:
             if matches:
                 return Counter(matches).most_common(1)[0][0]
             radius += 0.1
-            if radius > 5:
+            if radius > 10:
                 return None
 
     if not df_hand.empty:
