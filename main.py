@@ -42,6 +42,31 @@ if st.session_state.authenticated and st.session_state.get("gebruiker") is None:
             st.rerun()
     st.stop()
 
+# ─── HELPERS ─────────────────────────────────────
+# TSP approximation: two furthest points as endpoints
+@st.cache_data
+
+def optimize_route(points):
+    max_dist = 0
+    start, end = None, None
+    for i, p in enumerate(points):
+        for q in points[i+1:]:
+            d = geodesic(p, q).km
+            if d > max_dist:
+                max_dist, start, end = d, p, q
+    if not start or not end:
+        return points
+    remaining = [pt for pt in points if pt not in (start, end)]
+    path = [start]
+    current = start
+    while remaining:
+        next_pt = min(remaining, key=lambda x: geodesic(current, x).km)
+        path.append(next_pt)
+        remaining.remove(next_pt)
+        current = next_pt
+    path.append(end)
+    return path
+
 # ─── DATABASE ────────────────────────────────────
 @st.cache_resource
 def get_engine():
@@ -446,10 +471,11 @@ with tab1:
 
 
 
-# ─── TAB 2: KAART ─────────────────────────────────
+# ─── TAB 2: KAART & ROUTEOPTIMALISATIE ───────────
 with tab2:
-    st.subheader("🗺️ Containerkaart")
+    st.subheader("🗺️ Containerkaart & Routeoptimalisatie")
 
+    # Data laden
     @st.cache_data(ttl=300)
     def load_routes_for_map():
         df = run_query("""
@@ -462,8 +488,7 @@ with tab2:
         df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True)
         df["r_lat"] = pd.to_numeric(df["r_lat"], errors="coerce")
         df["r_lon"] = pd.to_numeric(df["r_lon"], errors="coerce")
-        df = df.dropna(subset=["r_lat", "r_lon"])
-        return df
+        return df.dropna(subset=["r_lat", "r_lon"])
 
     @st.cache_data(ttl=300)
     def load_all_containers():
@@ -480,107 +505,83 @@ with tab2:
     sel_names = st.session_state.extra_meegegeven_tijdelijk
     df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
 
-    def find_nearest_route(r):
-        if pd.isna(r["lat"]) or pd.isna(r["lon"]):
-            return None
-        radius = 0.15
-        while True:
-            matches = [
-                rp["route_omschrijving"] for _, rp in df_routes.iterrows()
-                if rp["content_type"] == r["content_type"]
-                and geodesic((r["lat"], r["lon"]), (rp["r_lat"], rp["r_lon"])).km <= radius
-            ]
-            if matches:
-                return Counter(matches).most_common(1)[0][0]
-            radius += 0.1
-            if radius > 5:
-                return None
-
-    if not df_hand.empty:
-        df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
-    else:
-        df_hand["dichtstbijzijnde_route"] = None
-
-    kleuren = [
-        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
-        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
-    ]
-    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
-
-    layers = []
+    # Bestaande kaartlaag
+    kleuren = [[255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],[0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]]
+    kleur_map = {route: kleuren[i % len(kleuren)]+[175] for i, route in enumerate(sel_routes)}
+    base_layers = []
     for route in sel_routes:
-        df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
-        df_r["tooltip_label"] = df_r.apply(
-            lambda row: f"""
-                <b>🧺 {row['container_name']}</b><br>
-                Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['route_omschrijving'] or "—"}<br>
-                Locatie: {row['address']}, {row['city']}
-            """, axis=1
-        )
-        layers.append(pdk.Layer(
+        df_r = df_routes[df_routes["route_omschrijving"]==route]
+        base_layers.append(pdk.Layer(
             "ScatterplotLayer",
             data=df_r,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
-            stroked=True,
-            get_line_color=[0, 0, 0],            # zwarte outline
-            line_width_min_pixels=2,             # dun lijntje
-            radiusMinPixels=4,
-            radiusMaxPixels=6,
-            pickable=True
-        ))
-
-    if not df_hand.empty:
-        df_hand["tooltip_label"] = df_hand.apply(
-            lambda row: f"""
-                <b>🖤 {row['container_name']}</b><br>
-                Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['dichtstbijzijnde_route'] or "—"}<br>
-                Locatie: {row['address']}, {row['city']}
-            """, axis=1
-        )
-        layers.append(pdk.Layer(
-            "ScatterplotLayer",
-            data=df_hand.dropna(subset=["lat", "lon"]),
-            get_position='[lon, lat]',
-            get_fill_color=[0, 0, 0, 220],
-            stroked=True,
             radiusMinPixels=5,
             radiusMaxPixels=10,
             pickable=True
         ))
-
-    tooltip = {
-        "html": "{tooltip_label}",
-        "style": {"backgroundColor": "steelblue", "color": "white"}
-    }
-
-    if not df_containers.empty:
-        midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
-    else:
-        midpoint = [52.0, 4.3]
-
+    # Toon basiskaart
+    midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()] if not df_containers.empty else [52.0,4.3]
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
-        initial_view_state=pdk.ViewState(
-            latitude=midpoint[0], longitude=midpoint[1],
-            zoom=11, pitch=0
-        ),
-        layers=layers,
-        tooltip=tooltip
+        initial_view_state=pdk.ViewState(latitude=midpoint[0], longitude=midpoint[1], zoom=11),
+        layers=base_layers
     ))
 
-    if not df_hand.empty:
-        st.markdown("### 📋 Handmatig geselecteerde containers")
-        st.dataframe(df_hand[[
-            "container_name", "address", "city", "content_type",
-            "fill_level", "dichtstbijzijnde_route"
-        ]], use_container_width=True)
+    # Optimalisatieknop
+    if sel_routes:
+        if st.button("🔄 Herschik geselecteerde routes"):
+            optimized = {}
+            for route in sel_routes:
+                pts = df_routes[df_routes["route_omschrijving"]==route][["r_lat","r_lon"]]
+                points = list(pts.itertuples(index=False, name=None))
+                optimized[route] = optimize_route(points) if len(points)>=2 else points
+            st.session_state.proposed_routes = optimized
+
+    # Preview nieuwe volgorde
+    if st.session_state.get("proposed_routes"):
+        layers_opt = []
+        for i, route in enumerate(sel_routes):
+            path = st.session_state.proposed_routes[route]
+            dfp = pd.DataFrame(path, columns=["lat","lon"]).assign(route=route)
+            # verbind als lijn
+            layers_opt.append(pdk.Layer(
+                "PathLayer",
+                data=dfp,
+                get_path='[[lon, lat] for lon, lat in zip(dfp.lon, dfp.lat)]',
+                get_width=4,
+                get_color=[30*i, 100, 200]
+            ))
+            # markeer punten
+            layers_opt.append(pdk.Layer(
+                "ScatterplotLayer",
+                data=dfp,
+                get_position='[lon, lat]',
+                get_fill_color=[30*i,100,200,200],
+                radiusMinPixels=6,
+                radiusMaxPixels=12
+            ))
+        st.pydeck_chart(pdk.Deck(
+            map_style="mapbox://styles/mapbox/streets-v12",
+            initial_view_state=pdk.ViewState(latitude=midpoint[0], longitude=midpoint[1], zoom=11),
+            layers=layers_opt
+        ))
+        # bevestig of annuleer
+        c1, c2 = st.columns(2)
+        if c1.button("✅ Bevestig wijzigingen"):
+            for route, path in st.session_state.proposed_routes.items():
+                for idx, (lat, lon) in enumerate(path):
+                    execute_query(
+                        "UPDATE apb_routes SET volgorde = :idx WHERE route_omschrijving = :rt AND container_location = :loc",
+                        {"idx": idx+1, "rt": route, "loc": f"{lat},{lon}"}
+                    )
+            st.success("Routes succesvol opgeslagen.")
+            del st.session_state.proposed_routes
+        if c2.button("❌ Annuleer wijzigingen"):
+            del st.session_state.proposed_routes
+            st.info("Optimalisatie geannuleerd.")
     else:
-        st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
+        st.info("Selecteer routes in de sidebar om te optimaliseren.")
 
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
