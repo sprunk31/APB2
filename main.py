@@ -295,7 +295,6 @@ with tab1:
     df = df_sidebar.copy()
 
     if st.session_state.refresh_needed:
-        # Altijd actuele data ophalen met datumfilter
         df = run_query("""
             SELECT *
             FROM apb_containers
@@ -329,37 +328,64 @@ with tab1:
         "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
     ]
 
-    # Bewerkbare containers
+    # Bewerkbare containers (geen filter op vulgraad)
     bewerkbaar = df[~df["extra_meegegeven"]].copy()
-    bewerkbaar = bewerkbaar[
-        (bewerkbaar["gemiddeldevulgraad"] > 45) |
-        (bewerkbaar["fill_level"] > 80)
-    ].sort_values(["content_type", "gemiddeldevulgraad"], ascending=[True, False])
+    bewerkbaar = bewerkbaar.sort_values(["content_type", "gemiddeldevulgraad"], ascending=[True, False])
 
     st.subheader("✏️ Bewerkbare containers")
 
-    # Paginering
-    containers_per_page = 25
-    total_rows = len(bewerkbaar)
-    total_pages = max(1, (total_rows - 1) // containers_per_page + 1)
+    # Paginering - initialiseer pagina
+    if "page_bewerkbaar" not in st.session_state:
+        st.session_state.page_bewerkbaar = 0
 
-    page = st.number_input("📄 Pagina", min_value=1, max_value=total_pages, step=1)
-    start_idx = (page - 1) * containers_per_page
-    end_idx = start_idx + containers_per_page
-    bewerkbaar_paged = bewerkbaar.iloc[start_idx:end_idx]
-
-    # AgGrid tonen
-    gb = GridOptionsBuilder.from_dataframe(bewerkbaar_paged[zichtbaar])
+    # AgGrid voor alle rijen (filters overschrijden paginering)
+    gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
     gb.configure_default_column(filter=True)
     gb.configure_column("extra_meegegeven", editable=True)
+    gb.configure_pagination(enabled=False)
     grid = AgGrid(
-        bewerkbaar_paged[zichtbaar],
+        bewerkbaar[zichtbaar],
         gridOptions=gb.build(),
+        update_mode=GridUpdateMode.VALUE_CHANGED,
+        height=0,  # wordt zo niet getoond, alleen voor filterverwerking
+    )
+
+    # Gebruiker kan filteren in de kolommen — dit gebeurt nu vóór paginering
+    filtered = grid["data"].copy()
+    filtered["extra_meegegeven"] = filtered["extra_meegegeven"].astype(bool)
+
+    # Paginering toepassen ná filtering
+    containers_per_page = 25
+    total_rows = len(filtered)
+    total_pages = max(1, (total_rows - 1) // containers_per_page + 1)
+
+    # Vorige/volgende knoppen
+    col1, col2, col3 = st.columns([1, 1, 8])
+    with col1:
+        if st.button("⬅️ Vorige") and st.session_state.page_bewerkbaar > 0:
+            st.session_state.page_bewerkbaar -= 1
+    with col2:
+        if st.button("Volgende ➡️") and st.session_state.page_bewerkbaar < total_pages - 1:
+            st.session_state.page_bewerkbaar += 1
+    with col3:
+        st.markdown(f"**Pagina {st.session_state.page_bewerkbaar + 1} van {total_pages}**")
+
+    start_idx = st.session_state.page_bewerkbaar * containers_per_page
+    end_idx = start_idx + containers_per_page
+    paged = filtered.iloc[start_idx:end_idx]
+
+    # Nu de echte AgGrid tonen (alleen zichtbare rijen)
+    gb2 = GridOptionsBuilder.from_dataframe(paged[zichtbaar])
+    gb2.configure_default_column(filter=True)
+    gb2.configure_column("extra_meegegeven", editable=True)
+    grid2 = AgGrid(
+        paged[zichtbaar],
+        gridOptions=gb2.build(),
         update_mode=GridUpdateMode.VALUE_CHANGED,
         height=500
     )
 
-    updated = grid["data"].copy()
+    updated = grid2["data"].copy()
     updated["extra_meegegeven"] = updated["extra_meegegeven"].astype(bool)
     st.session_state.extra_meegegeven_tijdelijk = updated[updated["extra_meegegeven"]]["container_name"].tolist()
 
