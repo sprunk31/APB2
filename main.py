@@ -627,98 +627,84 @@ with tab3:
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
 
-# ─── TAB 4: ROUTE OPTIMALISATIE ─────────────────────────
+# ─── TAB 4: ROUTE OPTIMALISATIE (alleen scatter) ─────────────────────────
 with tab4:
-    st.subheader("🚀 Route-optimalisatie")
+    st.subheader("🚀 Route-optimalisatie (kleurpunten)")
 
-    # Haal geselecteerde routes uit session_state
     sel_routes = st.session_state.geselecteerde_routes
     if len(sel_routes) < 2:
         st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
     else:
-        # Data van de geselecteerde routes ophalen
         df_r = get_df_routes()
         df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
 
-        # Kijk welke content_types minstens 2 keer voorkomen
         counts = df_sel["content_type"].value_counts()
         common_types = counts[counts >= 2].index.tolist()
 
         if not common_types:
-            st.warning("Onder de geselecteerde routes is géén content_type met ≥2 voorkomens.")
+            st.warning("Onder de geselecteerde routes is géén content_type met ≥2 containers.")
         else:
-            # Laat gebruiker kiezen welk content_type te optimaliseren
-            optim_type = st.selectbox("Kies content_type voor optimalisatie", common_types)
-
-            # Filter op dat content_type
+            optim_type = st.selectbox("Kies content_type voor weergave", common_types)
             df_opt = df_sel[df_sel["content_type"] == optim_type].dropna(subset=["container_location"])
 
-            # Parseer lat/lon
+            # parse lat/lon
             df_opt[["lat", "lon"]] = (
                 df_opt["container_location"]
-                  .str.split(",", expand=True)
-                  .astype(float)
+                      .str.split(",", expand=True)
+                      .astype(float)
             )
 
-            # Greedy nearest-neighbor TSP
-            points = df_opt[["container_name","lat","lon"]].to_dict("records")
-            route = [points.pop(0)]  # start bij eerste punt
-            import math
-            from geopy.distance import geodesic
-
-            while points:
-                last = route[-1]
-                # vind dichtstbijzijnde in nog te bezoeken
-                nxt = min(points,
-                          key=lambda p: geodesic(
-                              (last["lat"], last["lon"]),
-                              (p["lat"], p["lon"])
-                          ).km
-                )
-                route.append(nxt)
-                points.remove(nxt)
-
-            # Build line-segment data voor pydeck
-            line_data = []
-            for i in range(len(route)-1):
-                a, b = route[i], route[i+1]
-                line_data.append({
-                    "start": [a["lon"], a["lat"]],
-                    "end":   [b["lon"], b["lat"]]
-                })
-
-            # Pydeck-layers: lijnen + scatter
-            layers = [
-                # Lijnen
-                pdk.Layer(
-                    "LineLayer",
-                    data=line_data,
-                    get_source_position="start",
-                    get_target_position="end",
-                    get_width=2
-                ),
-                # Punten
-                pdk.Layer(
-                    "ScatterplotLayer",
-                    data=pd.DataFrame(route),
-                    get_position="[lon, lat]",
-                    get_radius=50,
-                    stroked=True,
-                    get_line_color=[0,0,0],
-                    pickable=True
-                )
+            # kleuren toewijzen per route
+            kleuren = [
+                [255, 0, 0], [0, 100, 255], [0, 255, 0],
+                [255, 165, 0], [160, 32, 240], [0, 206, 209],
+                [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
             ]
+            kleur_map = {
+                route: kleuren[i % len(kleuren)] + [200]
+                for i, route in enumerate(sel_routes)
+            }
 
-            # Bepaal midpoint
+            # bouw scatter-layers
+            layers = []
+            for route in sel_routes:
+                df_route = df_opt[df_opt["route_omschrijving"] == route]
+                if df_route.empty:
+                    continue
+                df_route["tooltip"] = df_route.apply(
+                    lambda r: (
+                        f"<b>🧺 {r['container_name']}</b><br>"
+                        f"Type: {r['content_type']}<br>"
+                        f"Vulgraad: {r['fill_level']}%<br>"
+                        f"Route: {r['route_omschrijving']}<br>"
+                        f"Locatie: {r['address']}, {r['city']}"
+                    ), axis=1
+                )
+                layers.append(pdk.Layer(
+                    "ScatterplotLayer",
+                    data=df_route,
+                    get_position='[lon, lat]',
+                    get_fill_color=kleur_map[route],
+                    stroked=True,
+                    get_line_color=[0, 0, 0],
+                    line_width_min_pixels=1,
+                    radiusMinPixels=6,
+                    radiusMaxPixels=10,
+                    pickable=True
+                ))
+
+            # midpoint berekenen
             mid_lat = df_opt["lat"].mean()
             mid_lon = df_opt["lon"].mean()
 
-            # Toon kaart
+            # kaart tonen
             st.pydeck_chart(pdk.Deck(
                 map_style="mapbox://styles/mapbox/streets-v12",
                 initial_view_state=pdk.ViewState(
                     latitude=mid_lat, longitude=mid_lon,
                     zoom=12, pitch=0
                 ),
-                layers=layers
+                layers=layers,
+                tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
             ))
+
