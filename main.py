@@ -618,51 +618,55 @@ Locatie: {row['address']}, {row['city']}
                 )
             st.session_state.proposed_routes = proposed
 
-        if st.session_state.get("proposed_routes"):
-            # Preview via PathLayer
-            layers_opt = []
-            for i, route in enumerate(sel_routes):
-                path = st.session_state.proposed_routes[route]
-                dfp = pd.DataFrame(path, columns=["lat", "lon"]).assign(route=route)
-                layers_opt.append(pdk.Layer(
-                    "PathLayer",
-                    data=dfp,
-                    get_path='[[lon, lat] for lon, lat in zip(dfp.lon, dfp.lat)]',
-                    get_width=4,
-                    pickable=False,
-                    get_color=[255 - i*20, i*20, 150]
+            if st.session_state.get("proposed_routes"):
+                # Preview via PathLayer
+                layers_opt = []
+                for i, route in enumerate(sel_routes):
+                    path = st.session_state.proposed_routes[route]
+                    # maak een lijst met dicts, één dict per route, met key 'path'
+                    route_data = [{
+                        "route": route,
+                        "path": [[lon, lat] for (lat, lon) in path]
+                    }]
+                    layers_opt.append(pdk.Layer(
+                        "PathLayer",
+                        data=route_data,
+                        get_path="path",  # verwijst nu naar het 'path'-veld
+                        get_width=4,
+                        pickable=False,
+                        get_color=[255 - i * 20, i * 20, 150]
+                    ))
+                st.pydeck_chart(pdk.Deck(
+                    map_style="mapbox://styles/mapbox/streets-v12",
+                    initial_view_state=pdk.ViewState(
+                        latitude=midpoint[0], longitude=midpoint[1],
+                        zoom=11, pitch=0
+                    ),
+                    layers=layers_opt
                 ))
-            st.pydeck_chart(pdk.Deck(
-                map_style="mapbox://styles/mapbox/streets-v12",
-                initial_view_state=pdk.ViewState(
-                    latitude=midpoint[0], longitude=midpoint[1],
-                    zoom=11, pitch=0
-                ),
-                layers=layers_opt
-            ))
-            col1, _, col3 = st.columns([1, 2, 1])
-            if col1.button("Bevestig wijzigingen"):
-                for route, path in st.session_state.proposed_routes.items():
-                    for idx, (lat, lon) in enumerate(path):
-                        execute_query(
-                            """
-UPDATE apb_routes
-SET volgorde = :volg
-WHERE route_omschrijving = :route
-  AND container_location = :loc
-""",
-                            {
-                                "volg": idx+1,
-                                "route": route,
-                                "loc": f"{lat},{lon}"
-                            }
-                        )
-                st.success("Routes succesvol bijgewerkt.")
-                del st.session_state.proposed_routes
-                st.experimental_rerun()
-            if col3.button("Annuleer wijzigingen"):
-                del st.session_state.proposed_routes
-                st.info("Optimalisatie geannuleerd.")
+                col1, _, col3 = st.columns([1, 2, 1])
+                if col1.button("Bevestig wijzigingen"):
+                    for route, path in st.session_state.proposed_routes.items():
+                        for idx, (lat, lon) in enumerate(path):
+                            execute_query(
+                                """
+    UPDATE apb_routes
+    SET volgorde = :volg
+    WHERE route_omschrijving = :route
+      AND container_location = :loc
+    """,
+                                {
+                                    "volg": idx + 1,
+                                    "route": route,
+                                    "loc": f"{lat},{lon}"
+                                }
+                            )
+                    st.success("Routes succesvol bijgewerkt.")
+                    del st.session_state.proposed_routes
+                    st.experimental_rerun()
+                if col3.button("Annuleer wijzigingen"):
+                    del st.session_state.proposed_routes
+                    st.info("Optimalisatie geannuleerd.")
     else:
         st.info("Selecteer eerst één of meer routes in de sidebar.")
 
