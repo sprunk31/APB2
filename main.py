@@ -450,12 +450,11 @@ with tab1:
 with tab2:
     st.subheader("🗺️ Containerkaart & Routeoptimalisatie")
 
-    # --- HELPERS ---
-    # TSP-approx: kies de twee verste punten als start/eind en greedy ertussenin
+    # --- HELPER: TSP-approximatie met verste punten als start/eind ---
     def optimize_route(points):
         max_dist = 0
         start = end = None
-        # bepaal verste paar
+        # bepaal het verste paar
         for i, p in enumerate(points):
             for q in points[i+1:]:
                 d = geodesic(p, q).km
@@ -503,14 +502,15 @@ with tab2:
     sel_names = st.session_state.extra_meegegeven_tijdelijk
     df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
 
-    # zoek nearest-route fallback
+    # fallback voor handmatige selectie
     def find_nearest_route(r):
         if pd.isna(r["lat"]) or pd.isna(r["lon"]):
             return None
         radius = 0.15
         while True:
             matches = [
-                rp["route_omschrijving"] for _, rp in df_routes.iterrows()
+                rp["route_omschrijving"]
+                for _, rp in df_routes.iterrows()
                 if rp["content_type"] == r["content_type"]
                 and geodesic((r["lat"], r["lon"]), (rp["r_lat"], rp["r_lon"])).km <= radius
             ]
@@ -525,24 +525,29 @@ with tab2:
     else:
         df_hand["dichtstbijzijnde_route"] = None
 
-    # standaard scatter-layers per geselecteerde route
+    # standaard ScatterplotLayer per geselecteerde route
     kleuren = [
-        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
-        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0],
+        [160, 32, 240], [0, 206, 209], [255, 105, 180],
+        [255, 255, 0], [139, 69, 19], [0, 128, 128]
     ]
-    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
+    kleur_map = {
+        route: kleuren[i % len(kleuren)] + [175]
+        for i, route in enumerate(sel_routes)
+    }
 
     layers = []
     for route in sel_routes:
         df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
         df_r["tooltip_label"] = df_r.apply(
             lambda row: f"""
-                <b>🧺 {row['container_name']}</b><br>
-                Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['route_omschrijving'] or "—"}<br>
-                Locatie: {row['address']}, {row['city']}
-            """, axis=1
+<b>🧺 {row['container_name']}</b><br>
+Type: {row['content_type']}<br>
+Vulgraad: {row['fill_level']}%<br>
+Route: {row['route_omschrijving'] or "—"}<br>
+Locatie: {row['address']}, {row['city']}
+""",
+            axis=1
         )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
@@ -557,16 +562,17 @@ with tab2:
             pickable=True
         ))
 
-    # handmatige selectie blijft zwart
+    # zwart voor handmatig geselecteerde containers
     if not df_hand.empty:
         df_hand["tooltip_label"] = df_hand.apply(
             lambda row: f"""
-                <b>🖤 {row['container_name']}</b><br>
-                Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['dichtstbijzijnde_route'] or "—"}<br>
-                Locatie: {row['address']}, {row['city']}
-            """, axis=1
+<b>🖤 {row['container_name']}</b><br>
+Type: {row['content_type']}<br>
+Vulgraad: {row['fill_level']}%<br>
+Route: {row['dichtstbijzijnde_route'] or "—"}<br>
+Locatie: {row['address']}, {row['city']}
+""",
+            axis=1
         )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
@@ -584,7 +590,6 @@ with tab2:
         "style": {"backgroundColor": "steelblue", "color": "white"}
     }
 
-    # kaart basisweergave
     midpoint = (
         [df_containers["lat"].mean(), df_containers["lon"].mean()]
         if not df_containers.empty else [52.0, 4.3]
@@ -599,15 +604,14 @@ with tab2:
         tooltip=tooltip
     ))
 
-    # --- OPTIMALISATIE CONTROLS ---
+    # --- OPTIMALISATIE KNOPPEN ---
     if sel_routes:
         st.markdown("---")
         st.markdown("## 🔄 Herschik geselecteerde routes")
         if st.button("Herschik routes"):
-            # genereer per route een geoptimaliseerd pad
             proposed = {}
             for route in sel_routes:
-                pts = df_routes[df_routes["route_omschrijving"] == route][["r_lat","r_lon"]]
+                pts = df_routes[df_routes["route_omschrijving"] == route][["r_lat", "r_lon"]]
                 pts_list = list(pts.itertuples(index=False, name=None))
                 proposed[route] = (
                     optimize_route(pts_list) if len(pts_list) >= 2 else pts_list
@@ -615,11 +619,11 @@ with tab2:
             st.session_state.proposed_routes = proposed
 
         if st.session_state.get("proposed_routes"):
-            # preview met PathLayer
+            # Preview via PathLayer
             layers_opt = []
             for i, route in enumerate(sel_routes):
                 path = st.session_state.proposed_routes[route]
-                dfp = pd.DataFrame(path, columns=["lat","lon"]).assign(route=route)
+                dfp = pd.DataFrame(path, columns=["lat", "lon"]).assign(route=route)
                 layers_opt.append(pdk.Layer(
                     "PathLayer",
                     data=dfp,
@@ -631,21 +635,27 @@ with tab2:
             st.pydeck_chart(pdk.Deck(
                 map_style="mapbox://styles/mapbox/streets-v12",
                 initial_view_state=pdk.ViewState(
-                    latitude=midpoint[0], longitude=midpoint[1], zoom=11, pitch=0
+                    latitude=midpoint[0], longitude=midpoint[1],
+                    zoom=11, pitch=0
                 ),
                 layers=layers_opt
             ))
-            col1, col2, col3 = st.columns([1,2,1])
+            col1, _, col3 = st.columns([1, 2, 1])
             if col1.button("Bevestig wijzigingen"):
-                # schrijf de volgorde naar DB (volgorde-kolom)
                 for route, path in st.session_state.proposed_routes.items():
-                    for idx,(lat,lon) in enumerate(path):
+                    for idx, (lat, lon) in enumerate(path):
                         execute_query(
-                            """UPDATE apb_routes
-                               SET volgorde = :volg
-                               WHERE route_omschrijving = :route
-                                 AND container_location = :loc""",
-                            {"volg": idx+1, "route": route, "loc": f"{lat},{lon}"}
+                            """
+UPDATE apb_routes
+SET volgorde = :volg
+WHERE route_omschrijving = :route
+  AND container_location = :loc
+""",
+                            {
+                                "volg": idx+1,
+                                "route": route,
+                                "loc": f"{lat},{lon}"
+                            }
                         )
                 st.success("Routes succesvol bijgewerkt.")
                 del st.session_state.proposed_routes
@@ -656,13 +666,16 @@ with tab2:
     else:
         st.info("Selecteer eerst één of meer routes in de sidebar.")
 
-    # handmatig geselecteerde container-tabel
+    # 📋 Toon handmatig geselecteerde containers
     if not df_hand.empty:
         st.markdown("### 📋 Handmatig geselecteerde containers")
-        st.dataframe(df_hand[[
-            "container_name", "address", "city",
-            "content_type", "fill_level", "dichtstbijzijnde_route"
-        ]], use_container_width=True)
+        st.dataframe(
+            df_hand[[
+                "container_name", "address", "city",
+                "content_type", "fill_level", "dichtstbijzijnde_route"
+            ]],
+            use_container_width=True
+        )
     else:
         st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
 
