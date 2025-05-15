@@ -203,6 +203,10 @@ with st.sidebar:
 
                 df2 = pd.read_excel(file2)
 
+                df1["operational_state"] = df1["operational_state"].astype(str).str.strip().str.title()
+                df1["status"] = df1["status"].astype(str).str.strip().str.title()
+                df1["on_hold"] = df1["on_hold"].astype(str).str.strip().str.title()
+
                 df1 = df1[
                     (df1['operational_state'].isin(['In use', 'Issue detected'])) &
                     (df1['status'] == 'In use') &
