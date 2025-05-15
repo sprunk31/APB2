@@ -320,7 +320,7 @@ with tab1:
     k3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
 
     # Filters
-    df = df[df["content_type"].isin(st.session_state.selected_types)]
+
     df = df[df["oproute"] == "Nee"]
 
     zichtbaar = [
