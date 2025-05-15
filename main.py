@@ -627,7 +627,7 @@ with tab3:
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
 
-# ─── TAB 4: ROUTE OPTIMALISATIE (alleen scatter, met r_lat/r_lon) ─────────────────────────
+# ─── TAB 4: ROUTE OPTIMALISATIE (kleurpunten + knop) ─────────────────────────
 with tab4:
     st.subheader("🚀 Route-optimalisatie (kleurpunten)")
 
@@ -635,11 +635,11 @@ with tab4:
     if len(sel_routes) < 2:
         st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
     else:
-        # gebruik de uitgebreide dataset met r_lat/r_lon
+        # pak alle containers voor de geselecteerde routes
         df_r = load_routes_for_map()
         df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
 
-        # bepaal welke content_types minstens 2× voorkomen
+        # vind welke content_types ≥2× voorkomen
         counts = df_sel["content_type"].value_counts()
         common_types = counts[counts >= 2].index.tolist()
 
@@ -647,65 +647,83 @@ with tab4:
             st.warning("Onder de geselecteerde routes is géén content_type met ≥2 containers.")
         else:
             optim_type = st.selectbox("Kies content_type voor weergave", common_types)
-
-            # filter op content_type en niet-lege locaties
             df_opt = df_sel[
                 (df_sel["content_type"] == optim_type) &
                 df_sel["r_lat"].notna() & df_sel["r_lon"].notna()
             ].copy()
 
-            # kies kleuren zoals in Tab 2
+            # kleuren zoals in Tab 2
             kleuren = [
                 [255, 0, 0], [0, 100, 255], [0, 255, 0],
                 [255, 165, 0], [160, 32, 240], [0, 206, 209],
                 [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
             ]
-            kleur_map = {
-                route: kleuren[i % len(kleuren)] + [200]
-                for i, route in enumerate(sel_routes)
-            }
 
-            layers = []
-            for route in sel_routes:
-                df_route = df_opt[df_opt["route_omschrijving"] == route]
-                if df_route.empty:
-                    continue
-                # tooltip maken met de wél aanwezige kolommen
-                df_route["tooltip"] = df_route.apply(
-                    lambda r: (
-                        f"<b>🧺 {r['container_name']}</b><br>"
-                        f"Type: {r['content_type']}<br>"
-                        f"Vulgraad: {r['fill_level']}%<br>"
-                        f"Route: {r['route_omschrijving']}<br>"
-                        f"Locatie: {r['address']}, {r['city']}"
-                    ), axis=1
-                )
-                layers.append(pdk.Layer(
-                    "ScatterplotLayer",
-                    data=df_route,
-                    get_position='[r_lon, r_lat]',
-                    get_fill_color=kleur_map[route],
-                    stroked=True,
-                    get_line_color=[0, 0, 0],
-                    line_width_min_pixels=1,
-                    radiusMinPixels=6,
-                    radiusMaxPixels=10,
-                    pickable=True
+            st.markdown("### 🛣️ Genereer nieuwe routes")
+            if st.button("Genereer routes"):
+                k = len(sel_routes)
+                # cluster de punten in k groepen
+                from sklearn.cluster import KMeans
+                coords = df_opt[["r_lat", "r_lon"]].values
+                kmeans = KMeans(n_clusters=k, random_state=42, init="k-means++")
+                df_opt["cluster"] = kmeans.fit_predict(coords)
+
+                # wijs elke cluster één van de geselecteerde route-namen toe
+                cluster_to_route = {i: sel_routes[i] for i in range(k)}
+                df_opt["new_route"] = df_opt["cluster"].map(cluster_to_route)
+
+                # bouw scatter-layers voor nieuwe routes
+                kleur_map_new = {
+                    route: kleuren[i % len(kleuren)] + [200]
+                    for i, route in enumerate(sel_routes)
+                }
+                layers = []
+                for route in sel_routes:
+                    df_route = df_opt[df_opt["new_route"] == route]
+                    if df_route.empty:
+                        continue
+                    df_route["tooltip"] = df_route.apply(
+                        lambda r: (
+                            f"<b>🧺 {r['container_name']}</b><br>"
+                            f"Type: {r['content_type']}<br>"
+                            f"Vulgraad: {r['fill_level']}%<br>"
+                            f"Route: {r['new_route']}<br>"
+                            f"Locatie: {r['address']}, {r['city']}"
+                        ), axis=1
+                    )
+                    layers.append(pdk.Layer(
+                        "ScatterplotLayer",
+                        data=df_route,
+                        get_position='[r_lon, r_lat]',
+                        get_fill_color=kleur_map_new[route],
+                        stroked=True,
+                        get_line_color=[0, 0, 0],
+                        line_width_min_pixels=1,
+                        radiusMinPixels=6,
+                        radiusMaxPixels=10,
+                        pickable=True
+                    ))
+
+                # bepaal kaart-center
+                mid_lat = df_opt["r_lat"].mean()
+                mid_lon = df_opt["r_lon"].mean()
+
+                # toon kaart
+                st.pydeck_chart(pdk.Deck(
+                    map_style="mapbox://styles/mapbox/streets-v12",
+                    initial_view_state=pdk.ViewState(
+                        latitude=mid_lat,
+                        longitude=mid_lon,
+                        zoom=12,
+                        pitch=0
+                    ),
+                    layers=layers,
+                    tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
                 ))
 
-            # centroid van alle punten
-            mid_lat = df_opt["r_lat"].mean()
-            mid_lon = df_opt["r_lon"].mean()
-
-            st.pydeck_chart(pdk.Deck(
-                map_style="mapbox://styles/mapbox/streets-v12",
-                initial_view_state=pdk.ViewState(
-                    latitude=mid_lat, longitude=mid_lon,
-                    zoom=12, pitch=0
-                ),
-                layers=layers,
-                tooltip={
-                    "html": "{tooltip}",
-                    "style": {"backgroundColor": "steelblue", "color": "white"}
-                }
-            ))
+                # laat de nieuwe toewijzing zien
+                st.subheader("📋 Containers per nieuwe route")
+                st.dataframe(
+                    df_opt[["container_name", "new_route", "address", "city"]],
+                    use_container_width=True
+                )
