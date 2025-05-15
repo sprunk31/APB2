@@ -322,7 +322,7 @@ with tab1:
     # ────────────────────────────────────────────────────────
     # FILTERS
     # ────────────────────────────────────────────────────────
-    df = df[df["oproute"] == "Nee"]
+
 
     # Bewerkbare containers
     bewerkbaar = df[~df["extra_meegegeven"]].copy()
