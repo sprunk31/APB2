@@ -627,7 +627,7 @@ with tab3:
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
 
-# ─── TAB 4: ROUTE OPTIMALISATIE (alleen scatter, met juiste kolommen) ─────────────────────────
+# ─── TAB 4: ROUTE OPTIMALISATIE (alleen scatter, met r_lat/r_lon) ─────────────────────────
 with tab4:
     st.subheader("🚀 Route-optimalisatie (kleurpunten)")
 
@@ -635,13 +635,11 @@ with tab4:
     if len(sel_routes) < 2:
         st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
     else:
-        # **gebruik hier load_routes_for_map** i.p.v. get_df_routes()
+        # gebruik de uitgebreide dataset met r_lat/r_lon
         df_r = load_routes_for_map()
-
-        # filter op de geselecteerde routes uit de sidebar
         df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
 
-        # bepaal content_types met minstens 2 containers
+        # bepaal welke content_types minstens 2× voorkomen
         counts = df_sel["content_type"].value_counts()
         common_types = counts[counts >= 2].index.tolist()
 
@@ -650,14 +648,13 @@ with tab4:
         else:
             optim_type = st.selectbox("Kies content_type voor weergave", common_types)
 
-            # filter op dat content_type en drop lege locaties
+            # filter op content_type en niet-lege locaties
             df_opt = df_sel[
                 (df_sel["content_type"] == optim_type) &
-                df_sel["container_location"].notna()
+                df_sel["r_lat"].notna() & df_sel["r_lon"].notna()
             ].copy()
 
-            # lat/lon zijn al geparsed in load_routes_for_map()
-            # kleuren toewijzen per route
+            # kies kleuren zoals in Tab 2
             kleuren = [
                 [255, 0, 0], [0, 100, 255], [0, 255, 0],
                 [255, 165, 0], [160, 32, 240], [0, 206, 209],
@@ -673,6 +670,7 @@ with tab4:
                 df_route = df_opt[df_opt["route_omschrijving"] == route]
                 if df_route.empty:
                     continue
+                # tooltip maken met de wél aanwezige kolommen
                 df_route["tooltip"] = df_route.apply(
                     lambda r: (
                         f"<b>🧺 {r['container_name']}</b><br>"
@@ -685,7 +683,7 @@ with tab4:
                 layers.append(pdk.Layer(
                     "ScatterplotLayer",
                     data=df_route,
-                    get_position='[lon, lat]',
+                    get_position='[r_lon, r_lat]',
                     get_fill_color=kleur_map[route],
                     stroked=True,
                     get_line_color=[0, 0, 0],
@@ -695,9 +693,9 @@ with tab4:
                     pickable=True
                 ))
 
-            # center de kaart op het gemiddelde van alle punten
-            mid_lat = df_opt["lat"].mean()
-            mid_lon = df_opt["lon"].mean()
+            # centroid van alle punten
+            mid_lat = df_opt["r_lat"].mean()
+            mid_lon = df_opt["r_lon"].mean()
 
             st.pydeck_chart(pdk.Deck(
                 map_style="mapbox://styles/mapbox/streets-v12",
@@ -706,5 +704,8 @@ with tab4:
                     zoom=12, pitch=0
                 ),
                 layers=layers,
-                tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
+                tooltip={
+                    "html": "{tooltip}",
+                    "style": {"backgroundColor": "steelblue", "color": "white"}
+                }
             ))
