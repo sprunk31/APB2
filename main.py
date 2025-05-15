@@ -536,13 +536,13 @@ with tab2:
     for route in sel_routes:
         df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
         df_r["tooltip_label"] = df_r.apply(
-            lambda row: f\"\"\"
+            lambda row: f"""
                 <b>🧺 {row['container_name']}</b><br>
                 Type: {row['content_type']}<br>
                 Vulgraad: {row['fill_level']}%<br>
                 Route: {row['route_omschrijving'] or "—"}<br>
                 Locatie: {row['address']}, {row['city']}
-            \"\"\", axis=1
+            """, axis=1
         )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
@@ -560,13 +560,13 @@ with tab2:
     # handmatige selectie blijft zwart
     if not df_hand.empty:
         df_hand["tooltip_label"] = df_hand.apply(
-            lambda row: f\"\"\"
+            lambda row: f"""
                 <b>🖤 {row['container_name']}</b><br>
                 Type: {row['content_type']}<br>
                 Vulgraad: {row['fill_level']}%<br>
                 Route: {row['dichtstbijzijnde_route'] or "—"}<br>
                 Locatie: {row['address']}, {row['city']}
-            \"\"\", axis=1
+            """, axis=1
         )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
@@ -641,11 +641,11 @@ with tab2:
                 for route, path in st.session_state.proposed_routes.items():
                     for idx,(lat,lon) in enumerate(path):
                         execute_query(
-                            \"\"\"UPDATE apb_routes
+                            """UPDATE apb_routes
                                SET volgorde = :volg
                                WHERE route_omschrijving = :route
-                                 AND container_location = :loc\"\"\",
-                            {"volg": idx+1, "route": route, "loc": f\"{lat},{lon}\"}
+                                 AND container_location = :loc""",
+                            {"volg": idx+1, "route": route, "loc": f"{lat},{lon}"}
                         )
                 st.success("Routes succesvol bijgewerkt.")
                 del st.session_state.proposed_routes
