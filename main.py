@@ -10,7 +10,7 @@ from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
-import KMeans
+from sklearn.cluster import KMeans
 
 ## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
@@ -636,11 +636,9 @@ with tab4:
     if len(sel_routes) < 2:
         st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
     else:
-        # pak alle containers voor de geselecteerde routes
         df_r = load_routes_for_map()
         df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
 
-        # vind welke content_types ≥2× voorkomen
         counts = df_sel["content_type"].value_counts()
         common_types = counts[counts >= 2].index.tolist()
 
@@ -653,7 +651,6 @@ with tab4:
                 df_sel["r_lat"].notna() & df_sel["r_lon"].notna()
             ].copy()
 
-            # kleuren zoals in Tab 2
             kleuren = [
                 [255, 0, 0], [0, 100, 255], [0, 255, 0],
                 [255, 165, 0], [160, 32, 240], [0, 206, 209],
@@ -663,17 +660,13 @@ with tab4:
             st.markdown("### 🛣️ Genereer nieuwe routes")
             if st.button("Genereer routes"):
                 k = len(sel_routes)
-                # cluster de punten in k groepen
-                from sklearn.cluster import KMeans
                 coords = df_opt[["r_lat", "r_lon"]].values
                 kmeans = KMeans(n_clusters=k, random_state=42, init="k-means++")
                 df_opt["cluster"] = kmeans.fit_predict(coords)
 
-                # wijs elke cluster één van de geselecteerde route-namen toe
                 cluster_to_route = {i: sel_routes[i] for i in range(k)}
                 df_opt["new_route"] = df_opt["cluster"].map(cluster_to_route)
 
-                # bouw scatter-layers voor nieuwe routes
                 kleur_map_new = {
                     route: kleuren[i % len(kleuren)] + [200]
                     for i, route in enumerate(sel_routes)
@@ -705,11 +698,9 @@ with tab4:
                         pickable=True
                     ))
 
-                # bepaal kaart-center
                 mid_lat = df_opt["r_lat"].mean()
                 mid_lon = df_opt["r_lon"].mean()
 
-                # toon kaart
                 st.pydeck_chart(pdk.Deck(
                     map_style="mapbox://styles/mapbox/streets-v12",
                     initial_view_state=pdk.ViewState(
@@ -722,7 +713,6 @@ with tab4:
                     tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
                 ))
 
-                # laat de nieuwe toewijzing zien
                 st.subheader("📋 Containers per nieuwe route")
                 st.dataframe(
                     df_opt[["container_name", "new_route", "address", "city"]],
