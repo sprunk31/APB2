@@ -499,7 +499,7 @@ with tab2:
     if not df_hand.empty:
         df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
     else:
-        df_hand["dichtstbijzijnde_route"] = "Geen route in de buurt"
+        df_hand["dichtstbijzijnde_route"] = None
 
     kleuren = [
         [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
