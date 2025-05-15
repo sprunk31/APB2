@@ -11,7 +11,7 @@ from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
 
-## ─── LOGIN ───────────────────────────────────────
+# ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -52,33 +52,7 @@ def get_engine():
     )
     return create_engine(db_url)
 
-# ─── GECACHEDE QUERIES ──────────────────────────
-@st.cache_data(ttl=300)
-def get_df_sidebar():
-    df = run_query("SELECT * FROM apb_containers")
-    df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
-    df["extra_meegegeven"] = df["extra_meegegeven"].astype(bool)
-    return df
-
-@st.cache_data(ttl=300)
-def get_df_routes():
-    return run_query("""
-        SELECT r.route_omschrijving, r.omschrijving AS container_name,
-               r.datum, c.container_location, c.content_type
-        FROM apb_routes r
-        JOIN apb_containers c ON r.omschrijving = c.container_name
-        WHERE r.datum >= current_date AND c.container_location IS NOT NULL
-    """)
-
-@st.cache_data(ttl=300)
-def get_df_containers():
-    # Alleen containers ingelezen vandaag of later
-    return run_query("""
-        SELECT container_name, container_location, content_type, fill_level, address, city
-        FROM apb_containers
-        WHERE datum_ingelezen >= current_date
-    """)
-
+# ─── QUERIES ─────────────────────────────────────
 def run_query(query, params=None):
     with get_engine().connect() as conn:
         return pd.read_sql(text(query), conn, params=params)
@@ -87,11 +61,10 @@ def execute_query(query, params=None):
     with get_engine().begin() as conn:
         conn.execute(text(query), params or {})
 
-# ─── PAGINA INSTELLINGEN ────────────────────────
+# ─── INITIALISATIE & PAGINACONFIG ───────────────
 st.set_page_config(page_title="Afvalcontainerbeheer", layout="wide")
 st.title("♻️ Afvalcontainerbeheer Dashboard")
 
-# ─── SESSIESTATE INITIALISATIE ───────────────────
 def init_session_state():
     defaults = {
         "op_route": False,
@@ -104,188 +77,87 @@ def init_session_state():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
-
 init_session_state()
 
-## ─── SIDEBAR ─────────────────────────────────────
+# ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
-    # Cache vernieuwen als nodig
     try:
         if st.session_state.refresh_needed:
             st.cache_data.clear()
             st.session_state.refresh_needed = False
-
-        df_sidebar = get_df_sidebar()
+        df_sidebar = run_query("SELECT * FROM apb_containers")
+        df_sidebar["fill_level"] = pd.to_numeric(df_sidebar["fill_level"], errors="coerce")
+        df_sidebar["extra_meegegeven"] = df_sidebar["extra_meegegeven"].astype(bool)
     except Exception as e:
         st.error(f"❌ Fout bij laden van containerdata: {e}")
         df_sidebar = pd.DataFrame()
 
     if rol == "Gebruiker":
         st.markdown("### 🔎 Filters")
-        # Content type filter as checkboxes in an expander
         types = sorted(df_sidebar["content_type"].dropna().unique())
-        # Default: geen types geselecteerd bij opstarten
-        if "selected_types" not in st.session_state:
-            st.session_state.selected_types = []
         with st.expander("Content types", expanded=True):
-            selected_types = []
+            selected = []
             for t in types:
-                checked = st.checkbox(
-                    label=t,
-                    value=(t in st.session_state.selected_types),
-                    key=f"cb_type_{t}"
-                )
-                if checked:
-                    selected_types.append(t)
-            st.session_state.selected_types = selected_types
+                if st.checkbox(t, value=(t in st.session_state.selected_types), key=f"cb_type_{t}"):
+                    selected.append(t)
+            st.session_state.selected_types = selected
 
         st.markdown("### 🚚 Routeselectie")
         try:
-            df_routes_full = get_df_routes()
-            if not df_routes_full.empty:
-                # Groepeer en tel het aantal containers per routeomschrijving
-                route_counts = df_routes_full["route_omschrijving"].value_counts().to_dict()
+            df_routes_full = run_query(
+                """
+                SELECT r.route_omschrijving, r.omschrijving AS container_name, r.datum
+                FROM apb_routes r JOIN apb_containers c ON r.omschrijving=c.container_name
+                WHERE r.datum >= current_date AND c.container_location IS NOT NULL
+                """
+            )
+            counts = df_routes_full["route_omschrijving"].value_counts().to_dict()
+            label_map = {f"{r} ({counts[r]})": r for r in sorted(counts)}
+            with st.expander("Selecteer routes", expanded=True):
+                sel = []
+                for lbl, rt in label_map.items():
+                    if st.checkbox(lbl, value=(rt in st.session_state.geselecteerde_routes), key=f"cb_route_{rt}"):
+                        sel.append(rt)
+                st.session_state.geselecteerde_routes = sel
+        except Exception:
+            st.info("📬 Geen routes beschikbaar.")
 
-                # Maak een lijst met labels zoals "Route A (12)"
-                beschikbare_routes = sorted(route_counts.items())  # lijst van (route, count)
-                label_to_route = {f"{route} ({count})": route for route, count in beschikbare_routes}
-
-                # Toon checkboxen met labels
-                with st.expander("Selecteer routes", expanded=True):
-                    geselecteerde = []
-                    for label, route in label_to_route.items():
-                        checked = st.checkbox(
-                            label=label,
-                            value=(route in st.session_state.geselecteerde_routes),
-                            key=f"cb_route_{route}"
-                        )
-                        if checked:
-                            geselecteerde.append(route)
-                    st.session_state.geselecteerde_routes = geselecteerde
-
-                    if checked:
-                            geselecteerde.append(route)
-                    st.session_state.geselecteerde_routes = geselecteerde
-            else:
-                st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
-        except Exception as e:
-            st.error(f"❌ Fout bij ophalen van routes: {e}")
-            pass
-
-
-    elif rol == "Upload":
-
+    else:  # Upload
         st.markdown("### 📤 Upload bestanden")
-
-        file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
-
-        file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
-
-        process = st.button("🗄️ Verwerk en laad data")
-
-        if process and file1 and file2:
-
+        file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"])
+        file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"])
+        if st.button("🗄️ Verwerk en laad data") and file1 and file2:
             try:
-
-                # 1) Leeg de cache
-
                 st.cache_data.clear()
-
-                # 2) Lees en verwerk de uploads
-
                 df1 = pd.read_excel(file1)
-
                 df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
-
                 df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
-
                 df2 = pd.read_excel(file2)
-
-                df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
-
-                df1 = df1[
-                    (df1['operational_state'].isin(['in use', 'issue detected'])) &
-                    (df1['status'].str.strip().str.lower() == 'in use') &
-                    (df1['on_hold'].str.strip().str.lower() == 'no')
-                    ].copy()
-
-                df1["content_type"] = df1["content_type"].apply(
-
-                    lambda x: "Glas" if "glass" in str(x).lower() else x
-
-                )
-
-                df1["combinatietelling"] = df1.groupby(
-
-                    ["location_code", "content_type"]
-
-                )["content_type"].transform("count")
-
-                df1["gemiddeldevulgraad"] = df1.groupby(
-
-                    ["location_code", "content_type"]
-
-                )["fill_level"].transform("mean")
-
-                df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"]).map(
-
-                    {True: "Ja", False: "Nee"}
-
-                )
-
-                df1["extra_meegegeven"] = False
-
-                cols = [
-
-                    "container_name", "address", "city", "location_code", "content_type",
-
-                    "fill_level", "container_location", "combinatietelling",
-
-                    "gemiddeldevulgraad", "oproute", "extra_meegegeven"
-
-                ]
-
-                df1 = df1[cols]
-
-                df1["datum_ingelezen"] = datetime.now().date()
-
+                df1 = df1[df1['operational_state'].str.lower().isin(['in use','issue detected']) &
+                          df1['status'].str.lower().eq('in use') &
+                          df1['on_hold'].str.lower().eq('no')]
+                df1['content_type'] = df1['content_type'].apply(lambda x: 'Glas' if 'glass' in str(x).lower() else x)
+                df1['combinatietelling'] = df1.groupby(['location_code','content_type'])['content_type'].transform('count')
+                df1['gemiddeldevulgraad'] = df1.groupby(['location_code','content_type'])['fill_level'].transform('mean')
+                df1['extra_meegegeven'] = False
+                df1['datum_ingelezen'] = datetime.now().date()
                 engine = get_engine()
-
                 with engine.begin() as conn:
-
                     conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
-
-                df1.to_sql("apb_containers", engine, if_exists="append", index=False)
-
-                df2 = df2.rename(columns={
-
-                    "Route Omschrijving": "route_omschrijving",
-
-                    "Omschrijving": "omschrijving",
-
-                    "Datum": "datum"
-
-                })[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
-
+                df1.to_sql('apb_containers', engine, if_exists='append', index=False)
+                df2 = df2.rename(columns={"Route Omschrijving":"route_omschrijving","Omschrijving":"omschrijving","Datum":"datum"})
+                df2 = df2[['route_omschrijving','omschrijving','datum']].drop_duplicates()
                 with engine.begin() as conn:
-
                     conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
-
-                df2.to_sql("apb_routes", engine, if_exists="append", index=False)
-
-                # Markeer voor herladen in hoofd-app
-
+                df2.to_sql('apb_routes', engine, if_exists='append', index=False)
                 st.session_state.refresh_needed = True
-
-                st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
-
+                st.success("✅ Data geüpload en cache vernieuwd.")
             except Exception as e:
-
-                st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+                st.error(f"❌ Fout bij upload: {e}")
 
 
 
@@ -446,141 +318,101 @@ with tab1:
 
 
 
-# ─── TAB 2: KAART ─────────────────────────────────
+# ─── TAB2: Kaart & Optimalisatie ─────────────────
 with tab2:
-    st.subheader("🗺️ Containerkaart")
+    st.subheader("🗺️ Containerkaart & Routeoptimalisatie")
 
     @st.cache_data(ttl=300)
     def load_routes_for_map():
-        df = run_query("""
+        df = run_query(
+            """
             SELECT r.route_omschrijving, r.omschrijving AS container_name,
                    c.container_location, c.content_type, c.fill_level, c.address, c.city
             FROM apb_routes r
             JOIN apb_containers c ON r.omschrijving = c.container_name
             WHERE c.container_location IS NOT NULL
-        """)
-        df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True)
-        df["r_lat"] = pd.to_numeric(df["r_lat"], errors="coerce")
-        df["r_lon"] = pd.to_numeric(df["r_lon"], errors="coerce")
-        df = df.dropna(subset=["r_lat", "r_lon"])
-        return df
+            """
+        )
+        df[['r_lat','r_lon']] = df['container_location'].str.split(',', expand=True)
+        df['r_lat'] = pd.to_numeric(df['r_lat'], errors='coerce')
+        df['r_lon'] = pd.to_numeric(df['r_lon'], errors='coerce')
+        return df.dropna(subset=['r_lat','r_lon'])
 
     @st.cache_data(ttl=300)
     def load_all_containers():
-        df = run_query("""
-            SELECT container_name, container_location, content_type, fill_level, address, city
-            FROM apb_containers
-        """)
-        df[["lat", "lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
+        df = run_query(
+            "SELECT container_name, container_location, content_type, fill_level, address, city FROM apb_containers"
+        )
+        df[['lat','lon']] = df['container_location'].str.split(',', expand=True).astype(float)
         return df
 
     df_routes = load_routes_for_map()
     df_containers = load_all_containers()
     sel_routes = st.session_state.geselecteerde_routes
-    sel_names = st.session_state.extra_meegegeven_tijdelijk
-    df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
 
-    def find_nearest_route(r):
-        if pd.isna(r["lat"]) or pd.isna(r["lon"]):
-            return None
-        radius = 0.15
-        while True:
-            matches = [
-                rp["route_omschrijving"] for _, rp in df_routes.iterrows()
-                if rp["content_type"] == r["content_type"]
-                and geodesic((r["lat"], r["lon"]), (rp["r_lat"], rp["r_lon"])).km <= radius
-            ]
-            if matches:
-                return Counter(matches).most_common(1)[0][0]
-            radius += 0.1
-            if radius > 5:
-                return None
+    # Reorder-knop altijd tonen, disabled als geen selectie
+    can_optimize = bool(sel_routes)
+    btn_opt = st.button("🔄 Herschik geselecteerde routes", disabled=not can_optimize)
+    if not can_optimize:
+        st.info("Selecteer eerst routes in de sidebar om te optimaliseren.")
 
-    if not df_hand.empty:
-        df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
-    else:
-        df_hand["dichtstbijzijnde_route"] = None
+    # Bereken voorgestelde routes
+    if btn_opt and can_optimize:
+        proposed = {}
+        for route in sel_routes:
+            pts = df_routes[df_routes['route_omschrijving']==route][['r_lat','r_lon']]
+            points = list(pts.itertuples(index=False,name=None))
+            proposed[route] = optimize_route(points) if len(points)>=2 else points
+        st.session_state.proposed_routes = proposed
 
-    kleuren = [
-        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
-        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
-    ]
-    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
-
+    # Basislaag kaart (container locations)
+    kleuren = [[255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],[0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]]
+    kleur_map = {route: kleuren[i%len(kleuren)]+[175] for i, route in enumerate(sel_routes)}
     layers = []
     for route in sel_routes:
-        df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
-        df_r["tooltip_label"] = df_r.apply(
-            lambda row: f"""
-                <b>🧺 {row['container_name']}</b><br>
-                Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['route_omschrijving'] or "—"}<br>
-                Locatie: {row['address']}, {row['city']}
-            """, axis=1
-        )
+        df_r = df_routes[df_routes['route_omschrijving']==route].copy()
         layers.append(pdk.Layer(
-            "ScatterplotLayer",
-            data=df_r,
-            get_position='[r_lon, r_lat]',
-            get_fill_color=kleur_map[route],
-            stroked=True,
-            get_line_color=[0, 0, 0],            # zwarte outline
-            line_width_min_pixels=2,             # dun lijntje
-            radiusMinPixels=4,
-            radiusMaxPixels=6,
-            pickable=True
+            'ScatterplotLayer', data=df_r,
+            get_position='[r_lon, r_lat]', get_fill_color=kleur_map[route],
+            radiusMinPixels=6, radiusMaxPixels=12
         ))
-
-    if not df_hand.empty:
-        df_hand["tooltip_label"] = df_hand.apply(
-            lambda row: f"""
-                <b>🖤 {row['container_name']}</b><br>
-                Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['dichtstbijzijnde_route'] or "—"}<br>
-                Locatie: {row['address']}, {row['city']}
-            """, axis=1
-        )
-        layers.append(pdk.Layer(
-            "ScatterplotLayer",
-            data=df_hand.dropna(subset=["lat", "lon"]),
-            get_position='[lon, lat]',
-            get_fill_color=[0, 0, 0, 220],
-            stroked=True,
-            radiusMinPixels=5,
-            radiusMaxPixels=10,
-            pickable=True
-        ))
-
-    tooltip = {
-        "html": "{tooltip_label}",
-        "style": {"backgroundColor": "steelblue", "color": "white"}
-    }
-
-    if not df_containers.empty:
-        midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
-    else:
-        midpoint = [52.0, 4.3]
-
+    midpoint = [df_containers['lat'].mean(), df_containers['lon'].mean()] if not df_containers.empty else [52.0,4.3]
     st.pydeck_chart(pdk.Deck(
-        map_style="mapbox://styles/mapbox/streets-v12",
-        initial_view_state=pdk.ViewState(
-            latitude=midpoint[0], longitude=midpoint[1],
-            zoom=11, pitch=0
-        ),
-        layers=layers,
-        tooltip=tooltip
+        map_style='mapbox://styles/mapbox/streets-v12',
+        initial_view_state=pdk.ViewState(latitude=midpoint[0],longitude=midpoint[1],zoom=11),
+        layers=layers
     ))
 
-    if not df_hand.empty:
-        st.markdown("### 📋 Handmatig geselecteerde containers")
-        st.dataframe(df_hand[[
-            "container_name", "address", "city", "content_type",
-            "fill_level", "dichtstbijzijnde_route"
-        ]], use_container_width=True)
-    else:
-        st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
+    # Preview en bevestiging
+    if st.session_state.get('proposed_routes'):
+        layers_opt = []
+        for i, route in enumerate(sel_routes):
+            path = st.session_state.proposed_routes[route]
+            dfp = pd.DataFrame(path, columns=['lat','lon']).assign(route=route)
+            layers_opt.append(pdk.Layer('PathLayer', data=dfp,
+                get_path='[[lon, lat] for lon, lat in zip(dfp.lon, dfp.lat)]', get_width=4, get_color=[30*i,100,200]
+            ))
+            layers_opt.append(pdk.Layer('ScatterplotLayer', data=dfp,
+                get_position='[lon, lat]', get_fill_color=[30*i,100,200,200], radiusMinPixels=8, radiusMaxPixels=14
+            ))
+        st.pydeck_chart(pdk.Deck(
+            map_style='mapbox://styles/mapbox/streets-v12',
+            initial_view_state=pdk.ViewState(latitude=midpoint[0],longitude=midpoint[1],zoom=11),
+            layers=layers_opt
+        ))
+        c1, c2 = st.columns(2)
+        if c1.button('✅ Bevestig wijzigingen'):
+            for route, path in st.session_state.proposed_routes.items():
+                for idx, (lat, lon) in enumerate(path):
+                    execute_query(
+                        "UPDATE apb_routes SET volgorde=:idx WHERE route_omschrijving=:rt AND container_location=:loc",
+                        {'idx': idx+1, 'rt': route, 'loc': f"{lat},{lon}"}
+                    )
+            st.success('Routes succesvol opgeslagen.')
+            del st.session_state.proposed_routes
+        if c2.button('❌ Annuleer wijzigingen'):
+            del st.session_state.proposed_routes
+            st.info('Optimalisatie geannuleerd.')
 
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
