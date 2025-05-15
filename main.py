@@ -328,40 +328,41 @@ with tab1:
         "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
     ]
 
-    # Bewerkbare containers
+    # Bewerkbare containers (geen filter op vulgraad)
     bewerkbaar = df[~df["extra_meegegeven"]].copy()
     bewerkbaar = bewerkbaar.sort_values(["content_type", "gemiddeldevulgraad"], ascending=[True, False])
 
     st.subheader("✏️ Bewerkbare containers")
 
-    # Paginering - initialiseer
+    # Zelf filtering buiten AgGrid
+    with st.expander("🔍 Zoekfilters"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            zoek_naam = st.text_input("🔤 Zoek op container_name").strip().lower()
+        with col2:
+            zoek_straat = st.text_input("📍 Zoek op address").strip().lower()
+        with col3:
+            content_type_filter = st.selectbox("🔄 Filter op content_type", ["Alle"] + sorted(bewerkbaar["content_type"].unique()))
+
+    filtered = bewerkbaar.copy()
+    if zoek_naam:
+        filtered = filtered[filtered["container_name"].str.lower().str.contains(zoek_naam)]
+    if zoek_straat:
+        filtered = filtered[filtered["address"].str.lower().str.contains(zoek_straat)]
+    if content_type_filter != "Alle":
+        filtered = filtered[filtered["content_type"] == content_type_filter]
+
+    # Paginering
     if "page_bewerkbaar" not in st.session_state:
         st.session_state.page_bewerkbaar = 0
 
-    # Stap 1: laat gebruiker filteren via AgGrid (alle rijen, onzichtbaar)
-    gb_all = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
-    gb_all.configure_default_column(filter=True)
-    gb_all.configure_pagination(enabled=False)
-    gb_all.configure_column("extra_meegegeven", editable=True)
-    grid_all = AgGrid(
-        bewerkbaar[zichtbaar],
-        gridOptions=gb_all.build(),
-        update_mode=GridUpdateMode.NO_UPDATE,
-        height=1  # maakt het "onzichtbaar"
-    )
-    filtered = grid_all["data"].copy()
-    filtered["extra_meegegeven"] = filtered["extra_meegegeven"].astype(bool)
-
-    # Stap 2: bereken paginering
     containers_per_page = 25
     total_rows = len(filtered)
     total_pages = max(1, (total_rows - 1) // containers_per_page + 1)
 
-    # Corrigeer paginawaarde
     if st.session_state.page_bewerkbaar >= total_pages:
         st.session_state.page_bewerkbaar = total_pages - 1
 
-    # Navigatieknoppen en paginateller
     col1, col2, col3 = st.columns([1, 2, 8])
     with col1:
         if st.button("⬅️"):
@@ -372,15 +373,13 @@ with tab1:
             if st.session_state.page_bewerkbaar < total_pages - 1:
                 st.session_state.page_bewerkbaar += 1
     with col3:
-        current = st.session_state.page_bewerkbaar + 1
-        st.markdown(f"**Pagina {current} van {total_pages}**")
+        st.markdown(f"**Pagina {st.session_state.page_bewerkbaar + 1} van {total_pages}**")
 
-    # Stap 3: slice data
     start_idx = st.session_state.page_bewerkbaar * containers_per_page
     end_idx = start_idx + containers_per_page
     paged = filtered.iloc[start_idx:end_idx]
 
-    # Stap 4: werkelijke tabel tonen
+    # AgGrid voor gepagineerde subset
     gb = GridOptionsBuilder.from_dataframe(paged[zichtbaar])
     gb.configure_default_column(filter=True)
     gb.configure_column("extra_meegegeven", editable=True)
@@ -395,7 +394,6 @@ with tab1:
     updated["extra_meegegeven"] = updated["extra_meegegeven"].astype(bool)
     st.session_state.extra_meegegeven_tijdelijk = updated[updated["extra_meegegeven"]]["container_name"].tolist()
 
-    # Opslaan en loggen
     if st.button("✅ Wijzigingen toepassen en loggen"):
         gewijzigde = updated[updated["extra_meegegeven"]]
         if not gewijzigde.empty:
@@ -439,7 +437,6 @@ with tab1:
             else:
                 st.warning("⚠️ Geen nieuwe logs toegevoegd.")
 
-    # Reeds gemarkeerde containers tonen
     st.subheader("🔒 Reeds gemarkeerde containers")
     reeds = df[df["extra_meegegeven"]]
     st.dataframe(reeds[zichtbaar], use_container_width=True)
