@@ -42,6 +42,31 @@ if st.session_state.authenticated and st.session_state.get("gebruiker") is None:
             st.rerun()
     st.stop()
 
+# ─── HELPERS ─────────────────────────────────────
+@st.cache_data
+# TSP approximation: two furthest points as endpoints
+# points: list of (lat, lon)
+def optimize_route(points):
+    max_dist = 0
+    start, end = None, None
+    for i, p in enumerate(points):
+        for q in points[i+1:]:
+            d = geodesic(p, q).km
+            if d > max_dist:
+                max_dist, start, end = d, p, q
+    if not start or not end:
+        return points
+    remaining = [pt for pt in points if pt not in (start, end)]
+    path = [start]
+    current = start
+    while remaining:
+        next_pt = min(remaining, key=lambda x: geodesic(current, x).km)
+        path.append(next_pt)
+        remaining.remove(next_pt)
+        current = next_pt
+    path.append(end)
+    return path
+
 # ─── DATABASE ────────────────────────────────────
 @st.cache_resource
 def get_engine():
@@ -290,7 +315,12 @@ with st.sidebar:
 
 
 # ─── TABS ─────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 Dashboard",
+    "🗺️ Kaartweergave",
+    "📋 Route-status",
+    "🔄 Route Optimalisatie"
+])
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
@@ -623,3 +653,62 @@ with tab3:
                 )
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
+
+# ─── TAB 4: ROUTE OPTIMALISATIE ─────────────────
+with tab4:
+    st.subheader("🔄 Optimaliseer routes op GPS-locatie")
+    df_routes = run_query(
+        "SELECT r.route_omschrijving, c.container_location "
+        "FROM apb_routes r JOIN apb_containers c ON r.omschrijving=c.container_name "
+        "WHERE c.container_location IS NOT NULL"
+    )
+    df_routes[['lat','lon']] = df_routes['container_location'].str.split(',', expand=True).astype(float)
+    sel = st.session_state.geselecteerde_routes
+    if not sel:
+        st.info("Selecteer routes in de sidebar om te optimaliseren.")
+    else:
+        if st.button("🔄 Bereken optimale volgorde"):
+            proposed = {}
+            for route in sel:
+                pts = df_routes[df_routes['route_omschrijving']==route][['lat','lon']]
+                pts_list = list(pts.itertuples(index=False, name=None))
+                proposed[route] = optimize_route(pts_list) if len(pts_list)>=2 else pts_list
+            st.session_state.proposed_routes = proposed
+        if st.session_state.get('proposed_routes'):
+            # preview kaart
+            layers_p = []
+            for idx, route in enumerate(sel):
+                path = st.session_state.proposed_routes[route]
+                dfp = pd.DataFrame(path, columns=['lat','lon']).assign(route=route)
+                # lijn
+                layers_p.append(pdk.Layer(
+                    'PathLayer', data=dfp,
+                    get_path='[[lon,lat] for lon,lat in zip(dfp.lon,dfp.lat)]',
+                    get_width=4, get_color=[50*idx, 100, 200]
+                ))
+                # punten
+                layers_p.append(pdk.Layer(
+                    'ScatterplotLayer', data=dfp,
+                    get_position='[lon,lat]', get_fill_color=[50*idx,100,200,200],
+                    radiusMinPixels=6, radiusMaxPixels=12
+                ))
+            mid = [df_routes['lat'].mean(), df_routes['lon'].mean()]
+            st.pydeck_chart(pdk.Deck(
+                map_style='mapbox://styles/mapbox/streets-v12',
+                initial_view_state=pdk.ViewState(latitude=mid[0], longitude=mid[1], zoom=11),
+                layers=layers_p
+            ))
+            # bevestig / annuleer
+            c1, c2 = st.columns(2)
+            if c1.button("✅ Bevestig volgorde"):
+                for route, path in st.session_state.proposed_routes.items():
+                    for i, (lat, lon) in enumerate(path):
+                        execute_query(
+                            "UPDATE apb_routes SET volgorde=:ord WHERE route_omschrijving=:rt AND container_location=:loc",
+                            {'ord': i+1, 'rt': route, 'loc': f"{lat},{lon}"}
+                        )
+                st.success("Volgorde opgeslagen in database.")
+                del st.session_state.proposed_routes
+            if c2.button("❌ Annuleer"):
+                del st.session_state.proposed_routes
+                st.info("Optimalisatie geannuleerd.")
