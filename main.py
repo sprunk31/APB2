@@ -294,13 +294,11 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 with tab1:
     df = df_sidebar.copy()
     if st.session_state.refresh_needed:
-        # Altijd actuele data ophalen met datumfilter
         df = run_query("""
             SELECT *
             FROM apb_containers
             WHERE datum_ingelezen::date = CURRENT_DATE
         """)
-
         st.session_state.refresh_needed = False
 
     df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
@@ -320,18 +318,20 @@ with tab1:
     k2.metric("📊 Vulgraad ≥ 80%", (df["fill_level"] >= 80).sum())
     k3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
 
-    # Filters
-    # Filter zó dat je enkel containers met oproute == 'Nee' ziet
-    df = df[df["content_type"].isin(st.session_state.selected_types)]
-    df = df[df["oproute"] == "Nee"]
-
+    # ─── FILTERS ─────────────────────────────
     zichtbaar = [
         "container_name", "address", "city", "location_code", "content_type",
         "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
     ]
 
-    # Bewerkbare containers
-    bewerkbaar = df[~df["extra_meegegeven"]].copy()
+    df = df[df["content_type"].isin(st.session_state.selected_types)]
+
+    # Toggle tussen 'Ja' en 'Nee' voor oproute
+    oproute_filter = st.radio("🧭 Toon containers die op route staan:", options=["Nee", "Ja"], horizontal=True)
+    df_filtered = df[df["oproute"] == oproute_filter]
+
+    # ─── BEWERKBARE CONTAINERS ─────────────────────────────
+    bewerkbaar = df_filtered[~df_filtered["extra_meegegeven"]].copy()
     bewerkbaar = bewerkbaar[
         (bewerkbaar["gemiddeldevulgraad"] > 45) |
         (bewerkbaar["fill_level"] > 80)
@@ -394,9 +394,27 @@ with tab1:
             else:
                 st.warning("⚠️ Geen nieuwe logs toegevoegd.")
 
+    # ─── GEMARKEERDE CONTAINERS ─────────────────────────────
     st.subheader("🔒 Reeds gemarkeerde containers")
-    reeds = df[df["extra_meegegeven"]]
+    reeds = df_filtered[df_filtered["extra_meegegeven"]]
     st.dataframe(reeds[zichtbaar], use_container_width=True)
+
+    # ─── VOLLEDIG OVERZICHT MET PAGINERING ─────────────────────────────
+    st.subheader("📄 Alle containers van geselecteerd type")
+
+    paginated_df = df[df["content_type"].isin(st.session_state.selected_types)].copy()
+
+    page_size = 30
+    total_rows = len(paginated_df)
+    total_pages = (total_rows - 1) // page_size + 1
+    page_num = st.number_input("📚 Pagina", min_value=1, max_value=total_pages, step=1)
+
+    start_idx = (page_num - 1) * page_size
+    end_idx = start_idx + page_size
+    paginated_view = paginated_df.iloc[start_idx:end_idx]
+
+    st.dataframe(paginated_view[zichtbaar], use_container_width=True)
+
 
 # ─── TAB 2: KAART ─────────────────────────────────
 with tab2:
