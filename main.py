@@ -628,9 +628,12 @@ with tab3:
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
 
-# ─── TAB 4: ROUTE OPTIMALISATIE (gelijke aantallen) ─────────────────────────
+from geopy.distance import geodesic
+import math
+
+# ─── TAB 4: ROUTE OPTIMALISATIE (gelijke aantallen + max separatie) ─────────────────────────
 with tab4:
-    st.subheader("🚀 Route-optimalisatie (gelijke aantallen)")
+    st.subheader("🚀 Route-optimalisatie (gelijke aantallen, max separatie)")
 
     sel_routes = st.session_state.geselecteerde_routes
     if len(sel_routes) < 2:
@@ -648,54 +651,92 @@ with tab4:
             optim_type = st.selectbox("Kies content_type voor weergave", common_types)
             df_opt = df_sel[
                 (df_sel["content_type"] == optim_type) &
-                df_sel["r_lat"].notna() & df_sel["r_lon"].notna()
+                df_sel["r_lat"].notna() &
+                df_sel["r_lon"].notna()
             ].copy()
 
+            # bereken zwaartepunt en hoek
+            mid_lat = df_opt["r_lat"].mean()
+            mid_lon = df_opt["r_lon"].mean()
+            df_opt["angle"] = df_opt.apply(
+                lambda r: math.atan2(r["r_lat"]-mid_lat, r["r_lon"]-mid_lon), axis=1
+            )
+            df_opt = df_opt.sort_values("angle").reset_index(drop=True)
+
+            n = len(df_opt)
+            k = len(sel_routes)
+            base = n // k
+            extra = n % k
+            # hoeveel in elke segment
+            sizes = [(base+1 if i<extra else base) for i in range(k)]
+
             kleuren = [
-                [255, 0, 0], [0, 100, 255], [0, 255, 0],
-                [255, 165, 0], [160, 32, 240], [0, 206, 209],
-                [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+                [255,0,0],[0,100,255],[0,255,0],
+                [255,165,0],[160,32,240],[0,206,209],
+                [255,105,180],[255,255,0],[139,69,19],[0,128,128]
             ]
 
-            st.markdown("### 🛣️ Genereer nieuwe routes (gelijke aantallen)")
+            st.markdown("### 🛣️ Genereer nieuwe routes")
             if st.button("Genereer routes"):
-                k = len(sel_routes)
-                n = len(df_opt)
+                # prepare data
+                pts = df_opt[["r_lat","r_lon"]].values.tolist()
 
-                # bepaal zwaartepunt
-                mid_lat = df_opt["r_lat"].mean()
-                mid_lon = df_opt["r_lon"].mean()
+                best_offset = 0
+                best_min_dist = -1
 
-                # hoek van ieder punt t.o.v. zwaartepunt
-                import math
-                df_opt["angle"] = df_opt.apply(
-                    lambda r: math.atan2(r["r_lat"]-mid_lat, r["r_lon"]-mid_lon), axis=1
-                )
+                # probeer offsets 0 … base-1
+                for s in range(base):
+                    # rotatie van indexlijst
+                    idxs = list(range(n))
+                    rot = idxs[s:] + idxs[:s]
 
-                # sorteer op hoek
-                df_opt = df_opt.sort_values("angle").reset_index(drop=True)
+                    # bepaal cluster-toewijzing
+                    labels = [None]*n
+                    pos = 0
+                    for ci, size in enumerate(sizes):
+                        for j in rot[pos:pos+size]:
+                            labels[j] = ci
+                        pos += size
 
-                # verdeel in k bijna-gelijke segments
-                base = n // k
-                extra = n % k
-                sizes = [(base + 1 if i < extra else base) for i in range(k)]
+                    # centroids per cluster
+                    centroids = []
+                    for ci in range(k):
+                        members = [pts[i] for i,label in enumerate(labels) if label==ci]
+                        lat_c = sum(p[0] for p in members)/len(members)
+                        lon_c = sum(p[1] for p in members)/len(members)
+                        centroids.append((lat_c, lon_c))
 
-                # wijs elke index toe aan een nieuwe route
-                labels = []
-                idx = 0
-                for i, size in enumerate(sizes):
-                    labels += [sel_routes[i]] * size
-                    idx += size
-                df_opt["new_route"] = labels
+                    # minimale paren-afstand
+                    dmin = min(
+                        geodesic(c1, c2).km
+                        for i,c1 in enumerate(centroids)
+                        for j,c2 in enumerate(centroids) if j>i
+                    )
+                    if dmin > best_min_dist:
+                        best_min_dist = dmin
+                        best_offset = s
 
-                # bouw de scatter-layers
+                # met beste offset toewijzen
+                idxs = list(range(n))
+                rot = idxs[best_offset:] + idxs[:best_offset]
+                final_labels = [None]*n
+                pos = 0
+                for ci, size in enumerate(sizes):
+                    for j in rot[pos:pos+size]:
+                        final_labels[j] = ci
+                    pos += size
+
+                # schrijf nieuwe route-naam
+                df_opt["new_route"] = [sel_routes[ci] for ci in final_labels]
+
+                # bouw scatterplot-layers
                 kleur_map_new = {
                     route: kleuren[i % len(kleuren)] + [200]
                     for i, route in enumerate(sel_routes)
                 }
                 layers = []
                 for route in sel_routes:
-                    df_route = df_opt[df_opt["new_route"] == route]
+                    df_route = df_opt[df_opt["new_route"]==route]
                     if df_route.empty:
                         continue
                     df_route["tooltip"] = df_route.apply(
@@ -713,7 +754,7 @@ with tab4:
                         get_position='[r_lon, r_lat]',
                         get_fill_color=kleur_map_new[route],
                         stroked=True,
-                        get_line_color=[0, 0, 0],
+                        get_line_color=[0,0,0],
                         line_width_min_pixels=1,
                         radiusMinPixels=6,
                         radiusMaxPixels=10,
@@ -730,12 +771,12 @@ with tab4:
                         pitch=0
                     ),
                     layers=layers,
-                    tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
+                    tooltip={"html":"{tooltip}","style":{"backgroundColor":"steelblue","color":"white"}}
                 ))
 
                 # overzichtstabel
                 st.subheader("📋 Containers per nieuwe route")
                 st.dataframe(
-                    df_opt[["container_name", "new_route", "address", "city"]],
+                    df_opt[["container_name","new_route","address","city"]],
                     use_container_width=True
                 )
