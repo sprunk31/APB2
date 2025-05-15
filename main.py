@@ -526,6 +526,7 @@ with tab2:
         df_hand["dichtstbijzijnde_route"] = None
 
     # standaard ScatterplotLayer per geselecteerde route
+    # standaard ScatterplotLayer per geselecteerde route
     kleuren = [
         [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0],
         [160, 32, 240], [0, 206, 209], [255, 105, 180],
@@ -539,20 +540,26 @@ with tab2:
     layers = []
     for route in sel_routes:
         df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
-        df_r["tooltip_label"] = df_r.apply(
-            lambda row: f"""
-<b>🧺 {row['container_name']}</b><br>
-Type: {row['content_type']}<br>
-Vulgraad: {row['fill_level']}%<br>
-Route: {row['route_omschrijving'] or "—"}<br>
-Locatie: {row['address']}, {row['city']}
-""",
-            axis=1
-        )
+        # eenvoudige single-line tooltip
+        df_r["tooltip_label"] = df_r.apply(lambda r:
+                                           "<b>🧺 {name}</b><br>"
+                                           "Type: {ctype}<br>"
+                                           "Vulgraad: {fill}%<br>"
+                                           "Route: {route}<br>"
+                                           "Locatie: {addr}, {city}".format(
+                                               name=r["container_name"],
+                                               ctype=r["content_type"],
+                                               fill=r["fill_level"],
+                                               route=r["route_omschrijving"] or "—",
+                                               addr=r["address"],
+                                               city=r["city"]
+                                           ),
+                                           axis=1
+                                           )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
             data=df_r,
-            get_position='[r_lon, r_lat]',
+            get_position="[r_lon, r_lat]",
             get_fill_color=kleur_map[route],
             stroked=True,
             get_line_color=[0, 0, 0],
@@ -562,22 +569,26 @@ Locatie: {row['address']}, {row['city']}
             pickable=True
         ))
 
-    # zwart voor handmatig geselecteerde containers
     if not df_hand.empty:
-        df_hand["tooltip_label"] = df_hand.apply(
-            lambda row: f"""
-<b>🖤 {row['container_name']}</b><br>
-Type: {row['content_type']}<br>
-Vulgraad: {row['fill_level']}%<br>
-Route: {row['dichtstbijzijnde_route'] or "—"}<br>
-Locatie: {row['address']}, {row['city']}
-""",
-            axis=1
-        )
+        df_hand["tooltip_label"] = df_hand.apply(lambda r:
+                                                 "<b>🖤 {name}</b><br>"
+                                                 "Type: {ctype}<br>"
+                                                 "Vulgraad: {fill}%<br>"
+                                                 "Route: {route}<br>"
+                                                 "Locatie: {addr}, {city}".format(
+                                                     name=r["container_name"],
+                                                     ctype=r["content_type"],
+                                                     fill=r["fill_level"],
+                                                     route=r["dichtstbijzijnde_route"] or "—",
+                                                     addr=r["address"],
+                                                     city=r["city"]
+                                                 ),
+                                                 axis=1
+                                                 )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
             data=df_hand.dropna(subset=["lat", "lon"]),
-            get_position='[lon, lat]',
+            get_position="[lon, lat]",
             get_fill_color=[0, 0, 0, 220],
             stroked=True,
             radiusMinPixels=5,
@@ -623,19 +634,17 @@ Locatie: {row['address']}, {row['city']}
                 layers_opt = []
                 for i, route in enumerate(sel_routes):
                     path = st.session_state.proposed_routes[route]
-                    # maak een lijst met dicts, één dict per route, met key 'path'
-                    route_data = [{
-                        "route": route,
-                        "path": [[lon, lat] for (lat, lon) in path]
-                    }]
+                    path_data = [{"path": [[lon, lat] for (lat, lon) in path]}]
+                    color = [255 - i * 20, i * 20, 150]
                     layers_opt.append(pdk.Layer(
                         "PathLayer",
-                        data=route_data,
-                        get_path="path",  # verwijst nu naar het 'path'-veld
+                        data=path_data,
+                        get_path="path",
                         get_width=4,
-                        pickable=False,
-                        get_color=[255 - i * 20, i * 20, 150]
+                        get_color=color,
+                        pickable=False
                     ))
+
                 st.pydeck_chart(pdk.Deck(
                     map_style="mapbox://styles/mapbox/streets-v12",
                     initial_view_state=pdk.ViewState(
