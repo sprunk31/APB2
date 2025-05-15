@@ -491,13 +491,13 @@ with tab2:
             if matches:
                 return Counter(matches).most_common(1)[0][0]
             radius += 0.1
-            if radius > 10:
+            if radius > 5:
                 return None
 
     if not df_hand.empty:
         df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
     else:
-        df_hand["dichtstbijzijnde_route"] = None
+        df_hand["dichtstbijzijnde_route"] = "Geen route in de buurt"
 
     kleuren = [
         [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
