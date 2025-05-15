@@ -42,35 +42,6 @@ if st.session_state.authenticated and st.session_state.get("gebruiker") is None:
             st.rerun()
     st.stop()
 
-# ─── HELPERS & OPTIMALISATIE ─────────────────────
-@st.cache_data
-def optimize_route(points):
-    """
-    Eenvoudige TSP-heuristiek:
-    Kies de twee verste punten als start en einde, en ga vervolgens
-    altijd naar het dichtsbijzijnde resterende punt.
-    """
-    if len(points) < 2:
-        return points
-    max_dist = 0
-    start = end = None
-    for i, p in enumerate(points):
-        for q in points[i+1:]:
-            d = geodesic(p, q).km
-            if d > max_dist:
-                max_dist, start, end = d, p, q
-
-    remaining = [pt for pt in points if pt not in (start, end)]
-    path = [start]
-    current = start
-    while remaining:
-        next_pt = min(remaining, key=lambda x: geodesic(current, x).km)
-        path.append(next_pt)
-        remaining.remove(next_pt)
-        current = next_pt
-    path.append(end)
-    return path
-
 # ─── DATABASE ────────────────────────────────────
 @st.cache_resource
 def get_engine():
@@ -128,7 +99,6 @@ def init_session_state():
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
-        "proposed_routes": None,
         "gebruiker": st.session_state.get("gebruiker")
     }
     for k, v in defaults.items():
@@ -143,48 +113,68 @@ with st.sidebar:
     rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
-    # Clear cache indien nodig
-    if st.session_state.refresh_needed:
-        st.cache_data.clear()
-        st.session_state.refresh_needed = False
-
-    # Basis container-data
+    # Cache vernieuwen als nodig
     try:
-        df_sidebar = run_query("SELECT * FROM apb_containers")
-        df_sidebar["fill_level"] = pd.to_numeric(df_sidebar["fill_level"], errors="coerce")
-        df_sidebar["extra_meegegeven"] = df_sidebar["extra_meegegeven"].astype(bool)
+        if st.session_state.refresh_needed:
+            st.cache_data.clear()
+            st.session_state.refresh_needed = False
+
+        df_sidebar = get_df_sidebar()
     except Exception as e:
-        st.error(f"❌ Fout bij laden containerdata: {e}")
+        st.error(f"❌ Fout bij laden van containerdata: {e}")
         df_sidebar = pd.DataFrame()
 
     if rol == "Gebruiker":
         st.markdown("### 🔎 Filters")
+        # Content type filter as checkboxes in an expander
         types = sorted(df_sidebar["content_type"].dropna().unique())
+        # Default: geen types geselecteerd bij opstarten
+        if "selected_types" not in st.session_state:
+            st.session_state.selected_types = []
         with st.expander("Content types", expanded=True):
-            selected = []
+            selected_types = []
             for t in types:
-                if st.checkbox(t, value=(t in st.session_state.selected_types), key=f"cb_type_{t}"):
-                    selected.append(t)
-            st.session_state.selected_types = selected
+                checked = st.checkbox(
+                    label=t,
+                    value=(t in st.session_state.selected_types),
+                    key=f"cb_type_{t}"
+                )
+                if checked:
+                    selected_types.append(t)
+            st.session_state.selected_types = selected_types
 
         st.markdown("### 🚚 Routeselectie")
         try:
-            df_routes_full = run_query("""
-                SELECT r.route_omschrijving, c.container_location
-                FROM apb_routes r
-                JOIN apb_containers c ON r.omschrijving=c.container_name
-                WHERE c.container_location IS NOT NULL
-            """)
-            counts = df_routes_full["route_omschrijving"].value_counts().to_dict()
-            with st.expander("Selecteer routes", expanded=True):
-                sel = []
-                for route, cnt in sorted(counts.items()):
-                    label = f"{route} ({cnt})"
-                    if st.checkbox(label, value=(route in st.session_state.geselecteerde_routes), key=f"cb_route_{route}"):
-                        sel.append(route)
-                st.session_state.geselecteerde_routes = sel
-        except Exception:
-            st.info("📬 Geen routes beschikbaar.")
+            df_routes_full = get_df_routes()
+            if not df_routes_full.empty:
+                # Groepeer en tel het aantal containers per routeomschrijving
+                route_counts = df_routes_full["route_omschrijving"].value_counts().to_dict()
+
+                # Maak een lijst met labels zoals "Route A (12)"
+                beschikbare_routes = sorted(route_counts.items())  # lijst van (route, count)
+                label_to_route = {f"{route} ({count})": route for route, count in beschikbare_routes}
+
+                # Toon checkboxen met labels
+                with st.expander("Selecteer routes", expanded=True):
+                    geselecteerde = []
+                    for label, route in label_to_route.items():
+                        checked = st.checkbox(
+                            label=label,
+                            value=(route in st.session_state.geselecteerde_routes),
+                            key=f"cb_route_{route}"
+                        )
+                        if checked:
+                            geselecteerde.append(route)
+                    st.session_state.geselecteerde_routes = geselecteerde
+
+                    if checked:
+                            geselecteerde.append(route)
+                    st.session_state.geselecteerde_routes = geselecteerde
+            else:
+                st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
+        except Exception as e:
+            st.error(f"❌ Fout bij ophalen van routes: {e}")
+            pass
 
 
     elif rol == "Upload":
@@ -300,12 +290,7 @@ with st.sidebar:
 
 
 # ─── TABS ─────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 Dashboard",
-    "🗺️ Kaartweergave",
-    "📋 Route-status",
-    "🔄 Route Optimalisatie"
-])
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
@@ -638,69 +623,3 @@ with tab3:
                 )
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
-
-# ─── TAB 4: ROUTE OPTIMALISATIE ──────────────────
-with tab4:
-    st.subheader("🔄 Optimaliseer routes op GPS-locatie")
-    df_rt = run_query("""
-        SELECT r.route_omschrijving, c.container_location
-        FROM apb_routes r
-        JOIN apb_containers c ON r.omschrijving=c.container_name
-        WHERE c.container_location IS NOT NULL
-    """)
-    df_rt[["lat","lon"]] = df_rt["container_location"].str.split(",", expand=True).astype(float)
-    sel = st.session_state.geselecteerde_routes
-
-    if not sel:
-        st.info("Selecteer eerst routes in de sidebar om te optimaliseren.")
-    else:
-        if st.button("Bereken optimale volgorde"):
-            proposed = {}
-            for route in sel:
-                pts = df_rt[df_rt["route_omschrijving"]==route][["lat","lon"]]
-                pts_list = list(pts.itertuples(index=False, name=None))
-                proposed[route] = optimize_route(pts_list)
-            st.session_state.proposed_routes = proposed
-
-        if st.session_state.proposed_routes:
-            # Preview kaart
-            layers_p = []
-            for idx, route in enumerate(sel):
-                path = st.session_state.proposed_routes[route]
-                dfp = pd.DataFrame(path, columns=["lat","lon"]).assign(route=route)
-                layers_p.append(pdk.Layer(
-                    "PathLayer",
-                    data=dfp,
-                    get_path='[[lon,lat] for lon,lat in zip(dfp.lon,dfp.lat)]',
-                    get_width=4,
-                    get_color=[50*idx, 100, 200]
-                ))
-                layers_p.append(pdk.Layer(
-                    "ScatterplotLayer",
-                    data=dfp,
-                    get_position='[lon,lat]',
-                    get_fill_color=[50*idx,100,200,200],
-                    radiusMinPixels=6,
-                    radiusMaxPixels=12
-                ))
-            mid = [df_rt["lat"].mean(), df_rt["lon"].mean()]
-            st.pydeck_chart(pdk.Deck(
-                map_style="mapbox://styles/mapbox/streets-v12",
-                initial_view_state=pdk.ViewState(latitude=mid[0], longitude=mid[1], zoom=11),
-                layers=layers_p
-            ))
-
-            c1, c2 = st.columns(2)
-            if c1.button("✅ Bevestig volgorde"):
-                for route, path in st.session_state.proposed_routes.items():
-                    for i, (lat, lon) in enumerate(path):
-                        execute_query(
-                            "UPDATE apb_routes SET volgorde=:o WHERE route_omschrijving=:r AND container_location=:loc",
-                            {"o": i+1, "r": route, "loc": f"{lat},{lon}"}
-                        )
-                st.success("Nieuwe volgorde opgeslagen.")
-                st.session_state.proposed_routes = None
-
-            if c2.button("❌ Annuleer"):
-                st.session_state.proposed_routes = None
-                st.info("Optimalisatie geannuleerd.")
