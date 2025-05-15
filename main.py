@@ -10,6 +10,7 @@ from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
+import KMeans
 
 ## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
