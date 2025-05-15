@@ -206,13 +206,9 @@ with st.sidebar:
                 df2 = pd.read_excel(file2)
 
                 df1 = df1[
-
-                    (df1['operational_state'] == 'In use') &
-
+                    (df1['operational_state'].isin(['In use', 'Issue detected'])) &
                     (df1['status'] == 'In use') &
-
                     (df1['on_hold'] == 'No')
-
                     ].copy()
 
                 df1["content_type"] = df1["content_type"].apply(
