@@ -293,7 +293,9 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Rou
 # ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
     df = df_sidebar.copy()
+
     if st.session_state.refresh_needed:
+        # Altijd actuele data ophalen met datumfilter
         df = run_query("""
             SELECT *
             FROM apb_containers
@@ -318,39 +320,50 @@ with tab1:
     k2.metric("📊 Vulgraad ≥ 80%", (df["fill_level"] >= 80).sum())
     k3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
 
-    # ─── FILTERS ─────────────────────────────
+    # Filters
+    df = df[df["content_type"].isin(st.session_state.selected_types)]
+    df = df[df["oproute"] == "Nee"]
+
     zichtbaar = [
         "container_name", "address", "city", "location_code", "content_type",
         "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
     ]
 
-    df = df[df["content_type"].isin(st.session_state.selected_types)]
-
-    # Toggle tussen 'Ja' en 'Nee' voor oproute
-    oproute_filter = st.radio("🧭 Toon containers die op route staan:", options=["Nee", "Ja"], horizontal=True)
-    df_filtered = df[df["oproute"] == oproute_filter]
-
-    # ─── BEWERKBARE CONTAINERS ─────────────────────────────
-    bewerkbaar = df_filtered[~df_filtered["extra_meegegeven"]].copy()
+    # Bewerkbare containers
+    bewerkbaar = df[~df["extra_meegegeven"]].copy()
     bewerkbaar = bewerkbaar[
         (bewerkbaar["gemiddeldevulgraad"] > 45) |
         (bewerkbaar["fill_level"] > 80)
-    ].sort_values("gemiddeldevulgraad", ascending=False)
+    ].sort_values(["content_type", "gemiddeldevulgraad"], ascending=[True, False])
 
     st.subheader("✏️ Bewerkbare containers")
-    gb = GridOptionsBuilder.from_dataframe(bewerkbaar[zichtbaar])
+
+    # Paginering
+    containers_per_page = 25
+    total_rows = len(bewerkbaar)
+    total_pages = max(1, (total_rows - 1) // containers_per_page + 1)
+
+    page = st.number_input("📄 Pagina", min_value=1, max_value=total_pages, step=1)
+    start_idx = (page - 1) * containers_per_page
+    end_idx = start_idx + containers_per_page
+    bewerkbaar_paged = bewerkbaar.iloc[start_idx:end_idx]
+
+    # AgGrid tonen
+    gb = GridOptionsBuilder.from_dataframe(bewerkbaar_paged[zichtbaar])
     gb.configure_default_column(filter=True)
     gb.configure_column("extra_meegegeven", editable=True)
     grid = AgGrid(
-        bewerkbaar[zichtbaar],
+        bewerkbaar_paged[zichtbaar],
         gridOptions=gb.build(),
         update_mode=GridUpdateMode.VALUE_CHANGED,
         height=500
     )
+
     updated = grid["data"].copy()
     updated["extra_meegegeven"] = updated["extra_meegegeven"].astype(bool)
     st.session_state.extra_meegegeven_tijdelijk = updated[updated["extra_meegegeven"]]["container_name"].tolist()
 
+    # Opslaan en loggen
     if st.button("✅ Wijzigingen toepassen en loggen"):
         gewijzigde = updated[updated["extra_meegegeven"]]
         if not gewijzigde.empty:
@@ -394,26 +407,10 @@ with tab1:
             else:
                 st.warning("⚠️ Geen nieuwe logs toegevoegd.")
 
-    # ─── GEMARKEERDE CONTAINERS ─────────────────────────────
+    # Reeds gemarkeerde containers tonen
     st.subheader("🔒 Reeds gemarkeerde containers")
-    reeds = df_filtered[df_filtered["extra_meegegeven"]]
+    reeds = df[df["extra_meegegeven"]]
     st.dataframe(reeds[zichtbaar], use_container_width=True)
-
-    # ─── VOLLEDIG OVERZICHT MET PAGINERING ─────────────────────────────
-    st.subheader("📄 Alle containers van geselecteerd type")
-
-    paginated_df = df[df["content_type"].isin(st.session_state.selected_types)].copy()
-
-    page_size = 30
-    total_rows = len(paginated_df)
-    total_pages = (total_rows - 1) // page_size + 1
-    page_num = st.number_input("📚 Pagina", min_value=1, max_value=total_pages, step=1)
-
-    start_idx = (page_num - 1) * page_size
-    end_idx = start_idx + page_size
-    paginated_view = paginated_df.iloc[start_idx:end_idx]
-
-    st.dataframe(paginated_view[zichtbaar], use_container_width=True)
 
 
 # ─── TAB 2: KAART ─────────────────────────────────
