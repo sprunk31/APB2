@@ -627,7 +627,7 @@ with tab3:
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
 
-# ─── TAB 4: ROUTE OPTIMALISATIE (alleen scatter) ─────────────────────────
+# ─── TAB 4: ROUTE OPTIMALISATIE (alleen scatter, met juiste kolommen) ─────────────────────────
 with tab4:
     st.subheader("🚀 Route-optimalisatie (kleurpunten)")
 
@@ -635,9 +635,13 @@ with tab4:
     if len(sel_routes) < 2:
         st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
     else:
-        df_r = get_df_routes()
+        # **gebruik hier load_routes_for_map** i.p.v. get_df_routes()
+        df_r = load_routes_for_map()
+
+        # filter op de geselecteerde routes uit de sidebar
         df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
 
+        # bepaal content_types met minstens 2 containers
         counts = df_sel["content_type"].value_counts()
         common_types = counts[counts >= 2].index.tolist()
 
@@ -645,15 +649,14 @@ with tab4:
             st.warning("Onder de geselecteerde routes is géén content_type met ≥2 containers.")
         else:
             optim_type = st.selectbox("Kies content_type voor weergave", common_types)
-            df_opt = df_sel[df_sel["content_type"] == optim_type].dropna(subset=["container_location"])
 
-            # parse lat/lon
-            df_opt[["lat", "lon"]] = (
-                df_opt["container_location"]
-                      .str.split(",", expand=True)
-                      .astype(float)
-            )
+            # filter op dat content_type en drop lege locaties
+            df_opt = df_sel[
+                (df_sel["content_type"] == optim_type) &
+                df_sel["container_location"].notna()
+            ].copy()
 
+            # lat/lon zijn al geparsed in load_routes_for_map()
             # kleuren toewijzen per route
             kleuren = [
                 [255, 0, 0], [0, 100, 255], [0, 255, 0],
@@ -665,7 +668,6 @@ with tab4:
                 for i, route in enumerate(sel_routes)
             }
 
-            # bouw scatter-layers
             layers = []
             for route in sel_routes:
                 df_route = df_opt[df_opt["route_omschrijving"] == route]
@@ -693,11 +695,10 @@ with tab4:
                     pickable=True
                 ))
 
-            # midpoint berekenen
+            # center de kaart op het gemiddelde van alle punten
             mid_lat = df_opt["lat"].mean()
             mid_lon = df_opt["lon"].mean()
 
-            # kaart tonen
             st.pydeck_chart(pdk.Deck(
                 map_style="mapbox://styles/mapbox/streets-v12",
                 initial_view_state=pdk.ViewState(
@@ -707,4 +708,3 @@ with tab4:
                 layers=layers,
                 tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
             ))
-
