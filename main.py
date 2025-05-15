@@ -315,14 +315,12 @@ with tab1:
         delft_count = denhaag_count = 0
 
     k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Totaal containers", len(df))
-    k2.metric("📊 Vulgraad ≥ 80%", (df["fill_level"] >= 80).sum())
-    k3.metric("🧍 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
+    k1.metric("\U0001F4E6 Totaal containers", len(df))
+    k2.metric("\U0001F4CA Vulgraad ≥ 80%", (df["fill_level"] >= 80).sum())
+    k3.metric("🧝 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
 
-    # ────────────────────────────────────────────────────────
-    # FILTERS
-    # ────────────────────────────────────────────────────────
-    # Zoekfilters eerst ophalen
+    # Zoekfilters
+    st.subheader("✍️ Bewerkbare containers")
     with st.expander("🔍 Zoekfilters"):
         col1, col2 = st.columns(2)
         with col1:
@@ -330,58 +328,34 @@ with tab1:
         with col2:
             zoek_straat = st.text_input("📍 Zoek op address").strip().lower()
 
-    # Eerst: alle containers
+    # Start met alle containers die nog niet extra zijn meegegeven
     bewerkbaar = df[~df["extra_meegegeven"]].copy()
 
-    # Als geen zoekopdracht, dan beperken tot containers NIET op route
+    # Zonder zoekopdracht -> filter op oproute en content_type uit sidebar
     if not zoek_naam and not zoek_straat:
         bewerkbaar = bewerkbaar[bewerkbaar["oproute"] == "Nee"]
         bewerkbaar = bewerkbaar[bewerkbaar["content_type"].isin(st.session_state.selected_types)]
 
-    # Als er WEL gezocht wordt: zoek over ALLES (alle content_types, ook oproute == Ja)
+    # Met zoekopdracht -> zoek door alles, ook op route
     if zoek_naam:
         bewerkbaar = bewerkbaar[bewerkbaar["container_name"].str.lower().str.contains(zoek_naam)]
     if zoek_straat:
         bewerkbaar = bewerkbaar[bewerkbaar["address"].str.lower().str.contains(zoek_straat)]
 
-    # Bewerkbare containers
-    bewerkbaar = df[~df["extra_meegegeven"]].copy()
+    # Sorteer altijd op content_type > gemiddeldevulgraad
     bewerkbaar = bewerkbaar.sort_values(["content_type", "gemiddeldevulgraad"], ascending=[True, False])
-
-    st.subheader("✏️ Bewerkbare containers")
-
-    # Zoekfilters
-    with st.expander("🔍 Zoekfilters"):
-        col1, col2 = st.columns(2)
-        with col1:
-            zoek_naam = st.text_input("🔤 Zoek op container_name").strip().lower()
-        with col2:
-            zoek_straat = st.text_input("📍 Zoek op address").strip().lower()
-
-    # Filterlogica
-    filtered = bewerkbaar.copy()
-
-    if not zoek_naam and not zoek_straat:
-        filtered = filtered[filtered["content_type"].isin(st.session_state.selected_types)]
-
-    if zoek_naam:
-        filtered = filtered[filtered["container_name"].str.lower().str.contains(zoek_naam)]
-    if zoek_straat:
-        filtered = filtered[filtered["address"].str.lower().str.contains(zoek_straat)]
 
     zichtbaar = [
         "container_name", "address", "city", "location_code", "content_type",
         "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
     ]
 
-    # ────────────────────────────────────────────────────────
-    # PAGINERING
-    # ────────────────────────────────────────────────────────
+    # Paginering
     if "page_bewerkbaar" not in st.session_state:
         st.session_state.page_bewerkbaar = 0
 
     containers_per_page = 25
-    total_rows = len(filtered)
+    total_rows = len(bewerkbaar)
     total_pages = max(1, (total_rows - 1) // containers_per_page + 1)
 
     if st.session_state.page_bewerkbaar >= total_pages:
@@ -401,11 +375,9 @@ with tab1:
 
     start_idx = st.session_state.page_bewerkbaar * containers_per_page
     end_idx = start_idx + containers_per_page
-    paged = filtered.iloc[start_idx:end_idx]
+    paged = bewerkbaar.iloc[start_idx:end_idx]
 
-    # ────────────────────────────────────────────────────────
-    # AgGrid tonen
-    # ────────────────────────────────────────────────────────
+    # AgGrid
     from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode
 
     gb = GridOptionsBuilder.from_dataframe(paged[zichtbaar])
@@ -422,9 +394,7 @@ with tab1:
     updated["extra_meegegeven"] = updated["extra_meegegeven"].astype(bool)
     st.session_state.extra_meegegeven_tijdelijk = updated[updated["extra_meegegeven"]]["container_name"].tolist()
 
-    # ────────────────────────────────────────────────────────
-    # Wijzigingen opslaan en loggen
-    # ────────────────────────────────────────────────────────
+    # Wijzigingen toepassen en loggen
     if st.button("✅ Wijzigingen toepassen en loggen"):
         gewijzigde = updated[updated["extra_meegegeven"]]
         if not gewijzigde.empty:
@@ -468,12 +438,10 @@ with tab1:
             else:
                 st.warning("⚠️ Geen nieuwe logs toegevoegd.")
 
-    # ────────────────────────────────────────────────────────
-    # Reeds gemarkeerde containers
-    # ────────────────────────────────────────────────────────
     st.subheader("🔒 Reeds gemarkeerde containers")
     reeds = df[df["extra_meegegeven"]]
     st.dataframe(reeds[zichtbaar], use_container_width=True)
+
 
 
 # ─── TAB 2: KAART ─────────────────────────────────
