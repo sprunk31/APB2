@@ -290,7 +290,10 @@ with st.sidebar:
 
 
 # ─── TABS ─────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 Dashboard", "🗺️ Kaartweergave", "📋 Route-status", "🚀 Optimalisatie"
+])
+
 
 # ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
@@ -623,3 +626,99 @@ with tab3:
                 )
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
+
+# ─── TAB 4: ROUTE OPTIMALISATIE ─────────────────────────
+with tab4:
+    st.subheader("🚀 Route-optimalisatie")
+
+    # Haal geselecteerde routes uit session_state
+    sel_routes = st.session_state.geselecteerde_routes
+    if len(sel_routes) < 2:
+        st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
+    else:
+        # Data van de geselecteerde routes ophalen
+        df_r = get_df_routes()
+        df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
+
+        # Kijk welke content_types minstens 2 keer voorkomen
+        counts = df_sel["content_type"].value_counts()
+        common_types = counts[counts >= 2].index.tolist()
+
+        if not common_types:
+            st.warning("Onder de geselecteerde routes is géén content_type met ≥2 voorkomens.")
+        else:
+            # Laat gebruiker kiezen welk content_type te optimaliseren
+            optim_type = st.selectbox("Kies content_type voor optimalisatie", common_types)
+
+            # Filter op dat content_type
+            df_opt = df_sel[df_sel["content_type"] == optim_type].dropna(subset=["container_location"])
+
+            # Parseer lat/lon
+            df_opt[["lat", "lon"]] = (
+                df_opt["container_location"]
+                  .str.split(",", expand=True)
+                  .astype(float)
+            )
+
+            # Greedy nearest-neighbor TSP
+            points = df_opt[["container_name","lat","lon"]].to_dict("records")
+            route = [points.pop(0)]  # start bij eerste punt
+            import math
+            from geopy.distance import geodesic
+
+            while points:
+                last = route[-1]
+                # vind dichtstbijzijnde in nog te bezoeken
+                nxt = min(points,
+                          key=lambda p: geodesic(
+                              (last["lat"], last["lon"]),
+                              (p["lat"], p["lon"])
+                          ).km
+                )
+                route.append(nxt)
+                points.remove(nxt)
+
+            # Build line-segment data voor pydeck
+            line_data = []
+            for i in range(len(route)-1):
+                a, b = route[i], route[i+1]
+                line_data.append({
+                    "start": [a["lon"], a["lat"]],
+                    "end":   [b["lon"], b["lat"]]
+                })
+
+            # Pydeck-layers: lijnen + scatter
+            layers = [
+                # Lijnen
+                pdk.Layer(
+                    "LineLayer",
+                    data=line_data,
+                    get_source_position="start",
+                    get_target_position="end",
+                    get_width=2
+                ),
+                # Punten
+                pdk.Layer(
+                    "ScatterplotLayer",
+                    data=pd.DataFrame(route),
+                    get_position="[lon, lat]",
+                    get_radius=50,
+                    stroked=True,
+                    get_line_color=[0,0,0],
+                    pickable=True
+                )
+            ]
+
+            # Bepaal midpoint
+            mid_lat = df_opt["lat"].mean()
+            mid_lon = df_opt["lon"].mean()
+
+            # Toon kaart
+            st.pydeck_chart(pdk.Deck(
+                map_style="mapbox://styles/mapbox/streets-v12",
+                initial_view_state=pdk.ViewState(
+                    latitude=mid_lat, longitude=mid_lon,
+                    zoom=12, pitch=0
+                ),
+                layers=layers
+            ))
