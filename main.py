@@ -322,7 +322,27 @@ with tab1:
     # ────────────────────────────────────────────────────────
     # FILTERS
     # ────────────────────────────────────────────────────────
+    # Zoekfilters eerst ophalen
+    with st.expander("🔍 Zoekfilters"):
+        col1, col2 = st.columns(2)
+        with col1:
+            zoek_naam = st.text_input("🔤 Zoek op container_name").strip().lower()
+        with col2:
+            zoek_straat = st.text_input("📍 Zoek op address").strip().lower()
 
+    # Eerst: alle containers
+    bewerkbaar = df[~df["extra_meegegeven"]].copy()
+
+    # Als geen zoekopdracht, dan beperken tot containers NIET op route
+    if not zoek_naam and not zoek_straat:
+        bewerkbaar = bewerkbaar[bewerkbaar["oproute"] == "Nee"]
+        bewerkbaar = bewerkbaar[bewerkbaar["content_type"].isin(st.session_state.selected_types)]
+
+    # Als er WEL gezocht wordt: zoek over ALLES (alle content_types, ook oproute == Ja)
+    if zoek_naam:
+        bewerkbaar = bewerkbaar[bewerkbaar["container_name"].str.lower().str.contains(zoek_naam)]
+    if zoek_straat:
+        bewerkbaar = bewerkbaar[bewerkbaar["address"].str.lower().str.contains(zoek_straat)]
 
     # Bewerkbare containers
     bewerkbaar = df[~df["extra_meegegeven"]].copy()
