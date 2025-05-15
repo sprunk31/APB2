@@ -148,8 +148,7 @@ with st.sidebar:
             df_routes_full = get_df_routes()
             if not df_routes_full.empty:
                 # Groepeer en tel het aantal containers per routeomschrijving
-                route_counts = dict(zip(df_routes_full["route_omschrijving"], df_routes_full["count"]))
-
+                route_counts = df_routes_full["route_omschrijving"].value_counts().to_dict()
 
                 # Maak een lijst met labels zoals "Route A (12)"
                 beschikbare_routes = sorted(route_counts.items())  # lijst van (route, count)
@@ -206,12 +205,10 @@ with st.sidebar:
 
                 df2 = pd.read_excel(file2)
 
-                df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
-
                 df1 = df1[
-                    (df1['operational_state'].isin(['in use', 'issue detected'])) &
-                    (df1['status'].str.strip().str.lower() == 'in use') &
-                    (df1['on_hold'].str.strip().str.lower() == 'no')
+                    (df1['operational_state'].isin(['In use', 'Issue detected'])) &
+                    (df1['status'] == 'In use') &
+                    (df1['on_hold'] == 'No')
                     ].copy()
 
                 df1["content_type"] = df1["content_type"].apply(
