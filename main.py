@@ -792,17 +792,40 @@ with tab4:
 
     solution = routing.SolveWithParameters(search_params)
     if not solution:
-        st.error("❌ Geen oplossing gevonden.")
-        st.stop()
+        st.warning("⚠️ OR-Tools gaf geen oplossing in 10 s; retry met Tabu Search en 60 s…")
+        # herconfigureer voor een tweede poging
+        search_params.local_search_metaheuristic = (
+            routing_enums_pb2.LocalSearchMetaheuristic.TABU_SEARCH
+        )
+        search_params.time_limit.seconds = 60
+        # (optioneel) verander first_solution_strategy
+        search_params.first_solution_strategy = (
+            routing_enums_pb2.FirstSolutionStrategy.PARALLEL_CHEAPEST_INSERTION
+        )
+        solution = routing.SolveWithParameters(search_params)
 
-    # vertaal oplossing naar vehicle-assignments
-    assignment = [-1]*N
-    for vehicle in range(k):
-        idx = routing.Start(vehicle)
-        while not routing.IsEnd(idx):
-            node = manager.IndexToNode(idx)
-            assignment[node] = vehicle
-            idx = solution.Value(routing.NextVar(idx))
+    if not solution:
+        st.error("❌ Nog steeds geen OR-Tools-oplossing; gebruik fallback-clustering.")
+        # fallback naar je eigen algorithme
+        labels = capacity_balance(
+            project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values),
+            np.argmin(np.linalg.norm(
+                project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)[:, None, :]
+                - project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)[None, :, :],
+                axis=2
+            ), axis=1).copy(),
+            caps
+        )
+    else:
+        # 5) Vertaal de OR-Tools uitkomst naar labels
+        assignment = [-1] * N
+        for vehicle in range(k):
+            idx = routing.Start(vehicle)
+            while not routing.IsEnd(idx):
+                node = manager.IndexToNode(idx)
+                assignment[node] = vehicle
+                idx = solution.Value(routing.NextVar(idx))
+        labels = np.array(assignment, dtype=int)
 
     df_opt["new_route"] = [sel_routes[assignment[i]] for i in range(N)]
 
