@@ -702,8 +702,8 @@ with tab4:
         st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
         st.stop()
 
-    # 1) Haal relevante data
-    df_r = load_routes_for_map()
+    # ─── Data ophalen ────────────────────────────────
+    df_r   = load_routes_for_map()
     df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
     counts = df_sel["content_type"].value_counts()
     common = counts[counts >= 2].index.tolist()
@@ -714,16 +714,14 @@ with tab4:
     optim_type = st.selectbox("Kies content_type voor weergave", common)
     df_opt = df_sel[
         (df_sel["content_type"] == optim_type) &
-        df_sel["r_lon"].notna() &
-        df_sel["r_lat"].notna()
+        df_sel["r_lat"].notna() &
+        df_sel["r_lon"].notna()
     ].copy().reset_index(drop=True)
 
-    # 2) Bouw locatieslijst + OSRM-table call
     coords = df_opt[["r_lon", "r_lat"]].values.tolist()
-    # stel in jouw st.secrets de URL in, bv "http://localhost:5000"
-    OSRM_URL = st.secrets.get("osrm", {}).get("table_url", "http://router.project-osrm.org")
+
+    # ─── OSRM-table of fallback ───────────────────────
     coord_str = ";".join(f"{lon},{lat}" for lon, lat in coords)
-    # probeer OSRM-table, maar val terug op geodetische afstand
     try:
         resp = requests.get(
             f"{OSRM_URL}/table/v1/driving/{coord_str}",
@@ -731,28 +729,22 @@ with tab4:
         )
         resp.raise_for_status()
         matrix = np.array(resp.json()["distances"], dtype=int)
-    except Exception as e:
+    except Exception:
         st.warning("⚠️ OSRM table failed, falling back to geodesic distances.")
-        from geopy.distance import geodesic
+        matrix = np.zeros((len(coords), len(coords)), dtype=int)
+        for i in range(len(coords)):
+            for j in range(len(coords)):
+                matrix[i, j] = int(
+                    geodesic((coords[i][1], coords[i][0]),
+                             (coords[j][1], coords[j][0]))
+                    .meters
+                )
 
-        N = len(coords)
-        matrix = np.zeros((N, N), dtype=int)
-        for i in range(N):
-            for j in range(N):
-                if i == j:
-                    matrix[i, j] = 0
-                else:
-                    # geodesic expects (lat, lon)
-                    matrix[i, j] = int(
-                        geodesic((coords[i][1], coords[i][0]),
-                                 (coords[j][1], coords[j][0])
-                                 ).meters
-                    )
-
-    # 3) OR-Tools setup
+    # ─── OR-Tools CVRP ────────────────────────────────
     N = len(coords)
     k = len(sel_routes)
-    # iedere “stop” heeft demand=1, capacity = evenredig
+
+    # vraag per stop = 1, capaciteit per voertuig = bijna-evenredig
     demands = [1]*N
     base, extra = divmod(N, k)
     vehicle_caps = [base+1 if i < extra else base for i in range(k)]
@@ -760,37 +752,35 @@ with tab4:
     manager = pywrapcp.RoutingIndexManager(N, k, 0)
     routing = pywrapcp.RoutingModel(manager)
 
-    # afstand callback
-    def distance_callback(from_idx, to_idx):
-        i = manager.IndexToNode(from_idx)
-        j = manager.IndexToNode(to_idx)
-        return int(matrix[i][j])
-    transit_cb = routing.RegisterTransitCallback(distance_callback)
+    # afstandscallback
+    def dist_cb(i, j):
+        return int(matrix[manager.IndexToNode(i)][manager.IndexToNode(j)])
+    transit_cb = routing.RegisterTransitCallback(dist_cb)
     routing.SetArcCostEvaluatorOfAllVehicles(transit_cb)
 
-    # capaciteits‐dimensie
-    def demand_callback(idx):
-        return demands[manager.IndexToNode(idx)]
-    demand_cb = routing.RegisterUnaryTransitCallback(demand_callback)
+    # capaciteit
+    def demand_cb(i):
+        return demands[manager.IndexToNode(i)]
+    demand_callback = routing.RegisterUnaryTransitCallback(demand_cb)
     routing.AddDimensionWithVehicleCapacity(
-        demand_cb,
-        0,  # geen slack
+        demand_callback,
+        0,
         vehicle_caps,
         True,
         "Capacity"
     )
 
-    # optioneel: max afstand per route (bv 100 km)
-    max_dist = 100_000
+    # optioneel: max afstand per route, b.v. 100 km
+    max_route_m = 100_000
     routing.AddDimension(
         transit_cb,
         0,
-        max_dist,
+        max_route_m,
         True,
         "Distance"
     )
 
-    # zoekstrategieën
+    # zoekparameters
     search_params = pywrapcp.DefaultRoutingSearchParameters()
     search_params.first_solution_strategy = (
         routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
@@ -800,69 +790,53 @@ with tab4:
     )
     search_params.time_limit.seconds = 10
 
-    # 4) Oplossen
     solution = routing.SolveWithParameters(search_params)
     if not solution:
-        st.error("❌ Geen oplossing gevonden voor het VRP.")
+        st.error("❌ Geen oplossing gevonden.")
         st.stop()
 
-    # 5) Vertaal oplossing naar labels
-    route_assignments = [-1]*N
-    for vehicle_id in range(k):
-        idx = routing.Start(vehicle_id)
+    # vertaal oplossing naar vehicle-assignments
+    assignment = [-1]*N
+    for vehicle in range(k):
+        idx = routing.Start(vehicle)
         while not routing.IsEnd(idx):
             node = manager.IndexToNode(idx)
-            route_assignments[node] = vehicle_id
+            assignment[node] = vehicle
             idx = solution.Value(routing.NextVar(idx))
 
-    df_opt["new_route"] = [
-        sel_routes[route_assignments[i]] for i in range(N)
-    ]
+    df_opt["new_route"] = [sel_routes[assignment[i]] for i in range(N)]
 
-    # 6) Tabel met aantallen
+    # ─── Resultaten tonen ─────────────────────────────
     st.subheader("📊 Aantal containers per nieuwe route")
     cnt = (
         df_opt.groupby("new_route")
               .size()
               .reset_index(name="aantal")
-              .sort_values("new_route")
     )
     st.dataframe(cnt, use_container_width=True)
 
-    # 7) PyDeck visualisatie
-    kleuren = [
-        [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
-        [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
-    ]
-    kleur_map = {
-        route: kleuren[i % len(kleuren)] + [200]
-        for i, route in enumerate(sel_routes)
-    }
+    # PyDeck-map
+    kleuren = [[255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
+               [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]]
+    kleur_map = {r: kleuren[i%len(kleuren)]+[200] for i,r in enumerate(sel_routes)}
 
     layers = []
     for route in sel_routes:
         part = df_opt[df_opt["new_route"] == route].copy()
-        part["tooltip"] = part.apply(
-            lambda r: (
-                f"<b>🧺 {r['container_name']}</b><br>"
-                f"Type: {r['content_type']}<br>"
-                f"Vulgraad: {r['fill_level']}%<br>"
-                f"Route: {r['new_route']}<br>"
-                f"Locatie: {r['address']}, {r['city']}"
-            ),
-            axis=1
-        )
+        part["tooltip"] = part.apply(lambda r: (
+            f"<b>🧺 {r['container_name']}</b><br>"
+            f"Type: {r['content_type']}<br>"
+            f"Vulgraad: {r['fill_level']}%<br>"
+            f"Route: {r['new_route']}<br>"
+            f"Locatie: {r['address']}, {r['city']}"
+        ), axis=1)
         layers.append(pdk.Layer(
-            "ScatterplotLayer",
-            data=part,
+            "ScatterplotLayer", data=part,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
-            stroked=True,
-            get_line_color=[0,0,0],
-            line_width_min_pixels=1,
-            radiusMinPixels=6,
-            radiusMaxPixels=10,
-            pickable=True
+            stroked=True, get_line_color=[0,0,0],
+            line_width_min_pixels=1, radiusMinPixels=6,
+            radiusMaxPixels=10, pickable=True
         ))
 
     mid_lat, mid_lon = df_opt["r_lat"].mean(), df_opt["r_lon"].mean()
@@ -872,5 +846,5 @@ with tab4:
             latitude=mid_lat, longitude=mid_lon, zoom=12, pitch=0
         ),
         layers=layers,
-        tooltip={"html": "{tooltip}", "style": {"backgroundColor":"steelblue","color":"white"}}
+        tooltip={"html":"{tooltip}","style":{"backgroundColor":"steelblue","color":"white"}}
     ))
