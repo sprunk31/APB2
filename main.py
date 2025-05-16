@@ -699,81 +699,48 @@ with tab4:
     if not st.button("Genereer routes"):
         st.stop()
 
-    # ── Configuratie
+    # ── Configuratie ─────────────────────────────
     k = len(sel_routes)
-    distance_threshold = 200   # meters
-    n_super = min(3, k)
-    n_seeds  = 20
-    max_iter_bal = 100
+    distance_threshold = 200    # minimale afstand in m (centroids)
+    n_seeds  = 20               # pogingen
+    max_iter = 100              # voor balance_clusters
 
-    # Coördinaten in meters
+    # 1) Projecteer coords naar meters
     lons, lats = df_opt["r_lon"].values, df_opt["r_lat"].values
-    coords_m = project_to_meters(lons, lats)
-    N = len(coords_m)
+    coords = project_to_meters(lons, lats)
+    N = len(coords)
 
-    # 1) Super-clusters
-    km_sup = KMeans(n_clusters=n_super, random_state=42, init="k-means++")
-    sup_labels = km_sup.fit_predict(coords_m)
+    # 2) Evenwichtige cluster-grootte
+    base  = N // k
+    extra = N % k
+    size_min = base
+    size_max = base + (1 if extra>0 else 0)
 
-    # 2) Verdeel k over regio’s
-    counts = np.array([np.sum(sup_labels==r) for r in range(n_super)])
-    props  = counts / N * k
-    floor  = np.floor(props).astype(int)
-    rem    = k - floor.sum()
-    fracs  = props - floor
-    for idx in np.argsort(-fracs)[:rem]:
-        floor[idx] += 1
-    k_per_reg = floor
+    best_labels = None
+    # 3) Globale balanced KMeans
+    for seed in range(n_seeds):
+        km = KMeans(n_clusters=k, random_state=42+seed, init="k-means++")
+        init_labels = km.fit_predict(coords)
+        labels = balance_clusters(coords, init_labels, k, size_min, size_max, max_iter=max_iter)
 
-    # 3) Binnen elke regio balanced KMeans
-    global_labels = np.empty(N, dtype=int)
-    offset = 0
-    for region in range(n_super):
-        idxs = np.where(sup_labels==region)[0]
-        kr = k_per_reg[region]
-        if kr < 1 or idxs.size == 0:
-            continue
-
-        coords_r = coords_m[idxs]
-        best_r = None
-        for seed in range(n_seeds):
-            km = KMeans(n_clusters=kr, random_state=100+seed, init="k-means++")
-            lab0 = km.fit_predict(coords_r)
-            lab1 = balance_clusters(
-                coords_r, lab0, kr,
-                size_min=coords_r.shape[0]//kr,
-                size_max=coords_r.shape[0]//kr + (1 if coords_r.shape[0]%kr else 0),
-                max_iter=max_iter_bal
-            )
-
-            # alleen checken bij ≥2 clusters
-            if kr > 1:
-                cents_r = np.array([
-                    coords_r[lab1==i].mean(axis=0) for i in range(kr)
-                ])
-                # onderlinge centroid-afstand
-                dists = [
-                    np.linalg.norm(cents_r[i]-cents_r[j])
-                    for i in range(kr) for j in range(i+1, kr)
-                ]
-                if min(dists) < distance_threshold:
-                    continue
-            # accept
-            best_r = lab1
+        # controleer onderlinge centroid-afstand
+        cents = np.array([ coords[labels==i].mean(axis=0) for i in range(k) ])
+        min_dist = min(
+            np.linalg.norm(cents[i]-cents[j])
+            for i in range(k) for j in range(i+1,k)
+        )
+        if min_dist >= distance_threshold:
+            best_labels = labels
             break
 
-        if best_r is None:
-            best_r = lab1
+    if best_labels is None:
+        st.warning(f"Kon centroids niet volledig ≥{distance_threshold} m uit elkaar zetten; resultaat is zo goed mogelijk.")
+        best_labels = labels
 
-        global_labels[idxs] = offset + best_r
-        offset += kr
+    # 4) Toewijzen en tonen
+    df_opt["cluster"]   = best_labels
+    df_opt["new_route"] = df_opt["cluster"].map({i: sel_routes[i] for i in range(k)})
 
-    # 4) Toewijzen
-    df_opt["cluster"]   = global_labels
-    mapping = {i: sel_routes[i] for i in range(k)}
-    df_opt["new_route"] = df_opt["cluster"].map(mapping)
-
-    # 5) Aantallen per route
     st.subheader("📊 Aantal containers per nieuwe route")
     cnt = (
         df_opt.groupby("new_route")
@@ -783,29 +750,26 @@ with tab4:
     )
     st.dataframe(cnt, use_container_width=True)
 
-    # 6) Visualisatie
+    # Kaart
     kleuren = [
       [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
       [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
     ]
-    kleur_map = {r: kleuren[i%len(kleuren)]+[200] for i,r in enumerate(sel_routes)}
+    kleur_map = {r: kleu + [200] for kleu, r in zip(kleuren, sel_routes)}
 
     layers = []
     for rte in sel_routes:
         sub = df_opt[df_opt["new_route"]==rte]
-        if sub.empty: continue
-        sub["tooltip"] = sub.apply(
-            lambda r: (
-              f"<b>🧺 {r['container_name']}</b><br>"
-              f"Type: {r['content_type']}<br>"
-              f"Vulgraad: {r['fill_level']}%<br>"
-              f"Route: {r['new_route']}<br>"
-              f"Locatie: {r['address']}, {r['city']}"
-            ), axis=1
-        )
+        sub["tooltip"] = sub.apply(lambda r: (
+            f"<b>🧺 {r['container_name']}</b><br>"
+            f"Type: {r['content_type']}<br>"
+            f"Vulgraad: {r['fill_level']}%<br>"
+            f"Route: {r['new_route']}<br>"
+            f"Locatie: {r['address']}, {r['city']}"
+        ), axis=1)
         layers.append(pdk.Layer(
             "ScatterplotLayer", data=sub,
-            get_position='[r_lon, r_lat]',
+            get_position='[r_lon,r_lat]',
             get_fill_color=kleur_map[rte],
             stroked=True, get_line_color=[0,0,0],
             line_width_min_pixels=1, radiusMinPixels=6,
@@ -819,11 +783,8 @@ with tab4:
             latitude=mid_lat, longitude=mid_lon, zoom=12, pitch=0
         ),
         layers=layers,
-        tooltip={"html":"{tooltip}", "style":{"backgroundColor":"steelblue","color":"white"}}
+        tooltip={"html":"{tooltip}","style":{"backgroundColor":"steelblue","color":"white"}}
     ))
 
     st.subheader("📋 Containers per nieuwe route")
-    st.dataframe(
-        df_opt[["container_name","new_route","address","city"]],
-        use_container_width=True
-    )
+    st.dataframe(df_opt[["container_name","new_route","address","city"]], use_container_width=True)
