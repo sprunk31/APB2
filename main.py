@@ -721,8 +721,8 @@ with tab4:
 
     # ── Configuratie ───────────────────────────────────────
     k = len(sel_routes)
-    distance_threshold = 100         # in meters
-    n_seeds = 1                     # aantal random_state-pogingen
+    distance_threshold = 50         # in meters
+    n_seeds = 100                     # aantal random_state-pogingen
     max_iter_balance = 100          # iteraties voor balance_clusters
 
     # 1) Projecteer naar meters
