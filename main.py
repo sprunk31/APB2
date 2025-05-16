@@ -10,8 +10,7 @@ from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
-from sklearn_extra.cluster import KMeansConstrained
-import numpy as np
+
 
 ## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
@@ -629,15 +628,7 @@ with tab3:
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
 
-def haversine(lon1, lat1, lon2, lat2):
-    """Bereken afstand in meters tussen twee GPS-punten."""
-    R = 6371000  # aarde radius in meters
-    φ1, φ2 = np.radians(lat1), np.radians(lat2)
-    Δφ = np.radians(lat2 - lat1)
-    Δλ = np.radians(lon2 - lon1)
-    a = np.sin(Δφ / 2) ** 2 + np.cos(φ1) * np.cos(φ2) * np.sin(Δλ / 2) ** 2
-    return R * 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-
+# ─── TAB 4: ROUTE OPTIMALISATIE (kleurpunten + knop) ─────────────────────────
 with tab4:
     st.subheader("🚀 Route-optimalisatie (kleurpunten)")
 
@@ -657,77 +648,29 @@ with tab4:
             optim_type = st.selectbox("Kies content_type voor weergave", common_types)
             df_opt = df_sel[
                 (df_sel["content_type"] == optim_type) &
-                df_sel["r_lat"].notna() &
-                df_sel["r_lon"].notna()
+                df_sel["r_lat"].notna() & df_sel["r_lon"].notna()
             ].copy()
+
+            kleuren = [
+                [255, 0, 0], [0, 100, 255], [0, 255, 0],
+                [255, 165, 0], [160, 32, 240], [0, 206, 209],
+                [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+            ]
 
             st.markdown("### 🛣️ Genereer nieuwe routes")
             if st.button("Genereer routes"):
-                # aantal clusters = aantal geselecteerde routes
                 k = len(sel_routes)
-                coords = df_opt[["r_lon", "r_lat"]].values
-                n_points = coords.shape[0]
+                coords = df_opt[["r_lat", "r_lon"]].values
+                kmeans = KMeans(n_clusters=k, random_state=42, init="k-means++")
+                df_opt["cluster"] = kmeans.fit_predict(coords)
 
-                # bereken minimale en maximale grootte per cluster
-                base = n_points // k
-                extra = n_points % k
-                size_min = base
-                size_max = base + (1 if extra > 0 else 0)
-
-                best_labels = None
-                best_centroids = None
-
-                # probeer tot 5 keer om centroids ≥100 m uit elkaar te krijgen
-                for seed in range(5):
-                    km = KMeansConstrained(
-                        n_clusters=k,
-                        size_min=size_min,
-                        size_max=size_max,
-                        random_state=42 + seed,
-                        init="k-means++"
-                    )
-                    labels = km.fit_predict(coords)
-                    centroids = km.cluster_centers_
-
-                    # controleer alle paren van centroids
-                    ok = True
-                    for i in range(k):
-                        for j in range(i + 1, k):
-                            d = haversine(
-                                centroids[i, 0], centroids[i, 1],
-                                centroids[j, 0], centroids[j, 1]
-                            )
-                            if d < 100:
-                                ok = False
-                                break
-                        if not ok:
-                            break
-
-                    if ok:
-                        best_labels = labels
-                        best_centroids = centroids
-                        break
-
-                if best_labels is None:
-                    st.warning("Kon routes niet volledig ≥100 m uit elkaar zetten; resultaat is zo goed mogelijk.")
-
-                # gebruik labels van geslaagde poging of laatste poging
-                df_opt["cluster"] = best_labels if best_labels is not None else labels
                 cluster_to_route = {i: sel_routes[i] for i in range(k)}
                 df_opt["new_route"] = df_opt["cluster"].map(cluster_to_route)
 
-                # kleurenschema
-                kleuren = [
-                    [255,   0,   0], [0, 100, 255], [0, 255,   0],
-                    [255, 165,   0], [160,  32, 240], [0, 206, 209],
-                    [255, 105, 180], [255, 255,   0], [139,  69,  19], [0, 128, 128]
-                ]
-                kleur_map = {
+                kleur_map_new = {
                     route: kleuren[i % len(kleuren)] + [200]
                     for i, route in enumerate(sel_routes)
                 }
-
-                # bouw pydeck-lagen
                 layers = []
                 for route in sel_routes:
                     df_route = df_opt[df_opt["new_route"] == route]
@@ -740,14 +683,13 @@ with tab4:
                             f"Vulgraad: {r['fill_level']}%<br>"
                             f"Route: {r['new_route']}<br>"
                             f"Locatie: {r['address']}, {r['city']}"
-                        ),
-                        axis=1
+                        ), axis=1
                     )
                     layers.append(pdk.Layer(
                         "ScatterplotLayer",
                         data=df_route,
                         get_position='[r_lon, r_lat]',
-                        get_fill_color=kleur_map[route],
+                        get_fill_color=kleur_map_new[route],
                         stroked=True,
                         get_line_color=[0, 0, 0],
                         line_width_min_pixels=1,
@@ -756,11 +698,9 @@ with tab4:
                         pickable=True
                     ))
 
-                # centrale focus voor de kaart
                 mid_lat = df_opt["r_lat"].mean()
                 mid_lon = df_opt["r_lon"].mean()
 
-                # toon kaart
                 st.pydeck_chart(pdk.Deck(
                     map_style="mapbox://styles/mapbox/streets-v12",
                     initial_view_state=pdk.ViewState(
@@ -770,13 +710,9 @@ with tab4:
                         pitch=0
                     ),
                     layers=layers,
-                    tooltip={
-                        "html": "{tooltip}",
-                        "style": {"backgroundColor": "steelblue", "color": "white"}
-                    }
+                    tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
                 ))
 
-                # toon tabel
                 st.subheader("📋 Containers per nieuwe route")
                 st.dataframe(
                     df_opt[["container_name", "new_route", "address", "city"]],

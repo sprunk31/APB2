@@ -11,5 +11,4 @@ more-itertools>=10.7.0
 pydeck
 matplotlib
 scikit-learn
-scikit-learn-extra
-numpy
+
