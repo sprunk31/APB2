@@ -13,7 +13,6 @@ import pydeck as pdk
 import numpy as np
 from sklearn.cluster import KMeans
 
-
 def project_to_meters(lons, lats):
     lat0 = np.mean(lats)
     m_per_deg_lat = 111_320
@@ -22,13 +21,20 @@ def project_to_meters(lons, lats):
     y = (lats - lat0) * m_per_deg_lat
     return np.vstack([x, y]).T
 
-def haversine(lon1, lat1, lon2, lat2):
-    R = 6371000
-    φ1, φ2 = np.radians(lat1), np.radians(lat2)
-    Δφ = np.radians(lat2 - lat1)
-    Δλ = np.radians(lon2 - lon1)
-    a = np.sin(Δφ/2)**2 + np.cos(φ1)*np.cos(φ2)*np.sin(Δλ/2)**2
-    return R * 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+def farthest_point_seeds(coords, k):
+    """
+    Kies k startpunten door steeds het punt te nemen dat
+    de maximale minimale afstand heeft tot de reeds gekozen seeds.
+    """
+    n = coords.shape[0]
+    # 1) kies willekeurig eerste index
+    seeds = [np.random.randint(n)]
+    # 2) voeg telkens het punt toe dat het verst verwijderd is van alle reeds gekozen
+    for _ in range(1, k):
+        dists = np.min([np.linalg.norm(coords - coords[s], axis=1) for s in seeds], axis=0)
+        next_seed = int(np.argmax(dists))
+        seeds.append(next_seed)
+    return coords[seeds]
 
 def balance_clusters(coords, labels, k, size_min, size_max, max_iter=100):
     labels = labels.copy()
@@ -38,10 +44,11 @@ def balance_clusters(coords, labels, k, size_min, size_max, max_iter=100):
         under = np.where(sizes<size_min)[0]
         if len(over)==0 and len(under)==0:
             break
-        centroids = np.zeros((k,2))
-        for i in range(k):
-            pts = coords[labels==i]
-            centroids[i] = pts.mean(axis=0) if len(pts)>0 else coords[np.random.choice(len(coords))]
+        cents = np.array([
+            coords[labels==i].mean(axis=0) if np.any(labels==i)
+            else coords[np.random.choice(len(coords))]
+            for i in range(k)
+        ])
         for j in under:
             need = size_min - sizes[j]
             if need<=0: continue
@@ -49,9 +56,9 @@ def balance_clusters(coords, labels, k, size_min, size_max, max_iter=100):
                 extra = sizes[i] - size_max
                 if extra<=0: continue
                 take = min(extra, need)
-                inds_i = np.where(labels==i)[0]
-                dists = np.linalg.norm(coords[inds_i] - centroids[j], axis=1)
-                move = inds_i[np.argsort(dists)[:take]]
+                inds = np.where(labels==i)[0]
+                d = np.linalg.norm(coords[inds] - cents[j], axis=1)
+                move = inds[np.argsort(d)[:take]]
                 labels[move] = j
                 sizes[i] -= take; sizes[j] += take; need -= take
                 if need==0: break
@@ -701,46 +708,56 @@ with tab4:
 
     # ── Configuratie ─────────────────────────────
     k = len(sel_routes)
-    distance_threshold = 200    # minimale afstand in m (centroids)
-    n_seeds  = 20               # pogingen
-    max_iter = 100              # voor balance_clusters
+    distance_threshold = 200   # minimale afstand in m (centroids)
+    max_iter = 100             # iteraties voor balance_clusters
 
-    # 1) Projecteer coords naar meters
+    # Projecteer coords naar meters
     lons, lats = df_opt["r_lon"].values, df_opt["r_lat"].values
-    coords = project_to_meters(lons, lats)
-    N = len(coords)
+    coords_m = project_to_meters(lons, lats)
+    N = coords_m.shape[0]
 
-    # 2) Evenwichtige cluster-grootte
+    # Evenwichtige cluster-grootte
     base  = N // k
     extra = N % k
     size_min = base
     size_max = base + (1 if extra>0 else 0)
 
-    best_labels = None
-    # 3) Globale balanced KMeans
-    for seed in range(n_seeds):
-        km = KMeans(n_clusters=k, random_state=42+seed, init="k-means++")
-        init_labels = km.fit_predict(coords)
-        labels = balance_clusters(coords, init_labels, k, size_min, size_max, max_iter=max_iter)
+    # Farthest-first seeds
+    init_centroids = farthest_point_seeds(coords_m, k)
 
-        # controleer onderlinge centroid-afstand
-        cents = np.array([ coords[labels==i].mean(axis=0) for i in range(k) ])
-        min_dist = min(
-            np.linalg.norm(cents[i]-cents[j])
-            for i in range(k) for j in range(i+1,k)
+    # 1) Echte KMeans met onze seeds
+    km = KMeans(
+        n_clusters=k,
+        init=init_centroids,
+        n_init=1,
+        max_iter=300,
+        random_state=42
+    )
+    init_labels = km.fit_predict(coords_m)
+
+    # 2) Balance-toewijzing
+    labels = balance_clusters(
+        coords_m, init_labels, k,
+        size_min=size_min,
+        size_max=size_max,
+        max_iter=max_iter
+    )
+
+    # 3) Controleer en waarschuw als centroids < threshold staan
+    cents = np.array([coords_m[labels==i].mean(axis=0) for i in range(k)])
+    dmat = np.linalg.norm(cents[:,None] - cents[None,:], axis=2)
+    np.fill_diagonal(dmat, np.inf)
+    if np.min(dmat) < distance_threshold:
+        st.warning(
+            f"Sommige centroids staan dichter dan {distance_threshold} m van elkaar.\n"
+            "De farthest-first seeding is aangehouden, maar met deze dataset kun je de\ndrempel of dataset-filter verder finetunen."
         )
-        if min_dist >= distance_threshold:
-            best_labels = labels
-            break
 
-    if best_labels is None:
-        st.warning(f"Kon centroids niet volledig ≥{distance_threshold} m uit elkaar zetten; resultaat is zo goed mogelijk.")
-        best_labels = labels
-
-    # 4) Toewijzen en tonen
-    df_opt["cluster"]   = best_labels
+    # Toewijzen aan DF voor visualisatie
+    df_opt["cluster"] = labels
     df_opt["new_route"] = df_opt["cluster"].map({i: sel_routes[i] for i in range(k)})
 
+    # 📊 Aantal per nieuwe route
     st.subheader("📊 Aantal containers per nieuwe route")
     cnt = (
         df_opt.groupby("new_route")
@@ -755,7 +772,7 @@ with tab4:
       [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
       [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
     ]
-    kleur_map = {r: kleu + [200] for kleu, r in zip(kleuren, sel_routes)}
+    kleur_map = {r: kleuren[i%len(kleuren)] + [200] for i,r in enumerate(sel_routes)}
 
     layers = []
     for rte in sel_routes:
@@ -769,7 +786,7 @@ with tab4:
         ), axis=1)
         layers.append(pdk.Layer(
             "ScatterplotLayer", data=sub,
-            get_position='[r_lon,r_lat]',
+            get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[rte],
             stroked=True, get_line_color=[0,0,0],
             line_width_min_pixels=1, radiusMinPixels=6,
