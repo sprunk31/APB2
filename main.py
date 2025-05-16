@@ -757,7 +757,7 @@ with tab4:
     base, extra = divmod(N, k)
     vehicle_caps = [base+1 if i < extra else base for i in range(k)]
 
-    manager = pywrapcp.RoutingIndexManager(N, k, depot=0)
+    manager = pywrapcp.RoutingIndexManager(N, k, 0)
     routing = pywrapcp.RoutingModel(manager)
 
     # afstand callback
