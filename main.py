@@ -4,14 +4,12 @@ import json
 from sqlalchemy import create_engine, text
 from datetime import datetime
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-import itertools
-import folium
-from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
+import requests
 import numpy as np
-from sklearn.cluster import KMeans
+from ortools.constraint_solver import routing_enums_pb2, pywrapcp
 
 def project_to_meters(lons, lats):
     lat0 = np.mean(lats)
@@ -697,16 +695,18 @@ with tab3:
 
 # ─── TAB 4: ROUTE OPTIMALISATIE (kleurpunten + knop) ─────────────────────────
 with tab4:
-    st.subheader("🚀 Route-optimalisatie (kleurpunten)")
+    st.subheader("🚀 Route-optimalisatie via OR-Tools CVRP")
 
     sel_routes = st.session_state.geselecteerde_routes
     if len(sel_routes) < 2:
         st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
         st.stop()
 
+    # 1) Haal relevante data
     df_r = load_routes_for_map()
     df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
-    common = df_sel["content_type"].value_counts()[lambda x: x>=2].index.tolist()
+    counts = df_sel["content_type"].value_counts()
+    common = counts[counts >= 2].index.tolist()
     if not common:
         st.warning("Onder de geselecteerde routes is géén content_type met ≥2 containers.")
         st.stop()
@@ -714,48 +714,103 @@ with tab4:
     optim_type = st.selectbox("Kies content_type voor weergave", common)
     df_opt = df_sel[
         (df_sel["content_type"] == optim_type) &
-        df_sel["r_lat"].notna() & df_sel["r_lon"].notna()
-    ].copy()
+        df_sel["r_lat"].notna() &
+        df_sel["r_lon"].notna()
+    ].copy().reset_index(drop=True)
 
-    st.markdown("### 🛣️ Genereer nieuwe routes")
-    if not st.button("Genereer routes"):
+    # 2) Bouw locatieslijst + OSRM-table call
+    coords = df_opt[["r_lon", "r_lat"]].values.tolist()
+    # stel in jouw st.secrets de URL in, bv "http://localhost:5000"
+    OSRM_URL = st.secrets["osrm"]["table_url"]
+    coord_str = ";".join(f"{lon},{lat}" for lon, lat in coords)
+    resp = requests.get(
+        f"{OSRM_URL}/table/v1/driving/{coord_str}",
+        params={"annotations": "distance"}
+    )
+    resp.raise_for_status()
+    matrix = np.array(resp.json()["distances"], dtype=int)  # in meters
+
+    # 3) OR-Tools setup
+    N = len(coords)
+    k = len(sel_routes)
+    # iedere “stop” heeft demand=1, capacity = evenredig
+    demands = [1]*N
+    base, extra = divmod(N, k)
+    vehicle_caps = [base+1 if i < extra else base for i in range(k)]
+
+    manager = pywrapcp.RoutingIndexManager(N, k, depot=0)
+    routing = pywrapcp.RoutingModel(manager)
+
+    # afstand callback
+    def distance_callback(from_idx, to_idx):
+        i = manager.IndexToNode(from_idx)
+        j = manager.IndexToNode(to_idx)
+        return int(matrix[i][j])
+    transit_cb = routing.RegisterTransitCallback(distance_callback)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_cb)
+
+    # capaciteits‐dimensie
+    def demand_callback(idx):
+        return demands[manager.IndexToNode(idx)]
+    demand_cb = routing.RegisterUnaryTransitCallback(demand_callback)
+    routing.AddDimensionWithVehicleCapacity(
+        demand_cb,
+        0,  # geen slack
+        vehicle_caps,
+        True,
+        "Capacity"
+    )
+
+    # optioneel: max afstand per route (bv 100 km)
+    max_dist = 100_000
+    routing.AddDimension(
+        transit_cb,
+        0,
+        max_dist,
+        True,
+        "Distance"
+    )
+
+    # zoekstrategieën
+    search_params = pywrapcp.DefaultRoutingSearchParameters()
+    search_params.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    )
+    search_params.local_search_metaheuristic = (
+        routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    )
+    search_params.time_limit.seconds = 10
+
+    # 4) Oplossen
+    solution = routing.SolveWithParameters(search_params)
+    if not solution:
+        st.error("❌ Geen oplossing gevonden voor het VRP.")
         st.stop()
 
-    # ── Configuratie ─────────────────────────────
-    k = len(sel_routes)
-    N = len(df_opt)
-    base, extra = divmod(N, k)
-    caps = [base+1 if i<extra else base for i in range(k)]
+    # 5) Vertaal oplossing naar labels
+    route_assignments = [-1]*N
+    for vehicle_id in range(k):
+        idx = routing.Start(vehicle_id)
+        while not routing.IsEnd(idx):
+            node = manager.IndexToNode(idx)
+            route_assignments[node] = vehicle_id
+            idx = solution.Value(routing.NextVar(idx))
 
-    # projecteer coördinaten naar meters
-    coords_m = project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)
+    df_opt["new_route"] = [
+        sel_routes[route_assignments[i]] for i in range(N)
+    ]
 
-    # 1) Pick farthest-first seeds
-    seeds_idx = farthest_point_seeds_indices(coords_m, k)
-
-    # 2) Init labels op basis van dichtsbijzijnde seed
-    seed_coords = coords_m[seeds_idx]
-    dmat = np.linalg.norm(coords_m[:, None, :] - seed_coords[None, :, :], axis=2)
-    init_labels = np.argmin(dmat, axis=1)
-
-    # 3) Balancen van labels naar capaciteit
-    labels = capacity_balance(coords_m, init_labels.copy(), caps)
-
-    # 4) Schrijf terug naar dataframe
-    df_opt["cluster"]   = labels
-    df_opt["new_route"] = df_opt["cluster"].map({i: sel_routes[i] for i in range(k)})
-
-    # 5) 📊 Aantal per nieuwe route
+    # 6) Tabel met aantallen
     st.subheader("📊 Aantal containers per nieuwe route")
-    count_df = (
+    cnt = (
         df_opt.groupby("new_route")
               .size()
               .reset_index(name="aantal")
               .sort_values("new_route")
     )
-    st.dataframe(count_df, use_container_width=True)
+    st.dataframe(cnt, use_container_width=True)
 
-    # 6) 🗺️ Visualisatie
+    # 7) PyDeck visualisatie
     kleuren = [
         [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
         [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
@@ -766,37 +821,37 @@ with tab4:
     }
 
     layers = []
-    for rte in sel_routes:
-        sub = df_opt[df_opt["new_route"] == rte].copy()
-        sub["tooltip"] = sub.apply(lambda r: (
-            f"<b>🧺 {r['container_name']}</b><br>"
-            f"Type: {r['content_type']}<br>"
-            f"Vulgraad: {r['fill_level']}%<br>"
-            f"Route: {r['new_route']}<br>"
-            f"Locatie: {r['address']}, {r['city']}"
-        ), axis=1)
+    for route in sel_routes:
+        part = df_opt[df_opt["new_route"] == route].copy()
+        part["tooltip"] = part.apply(
+            lambda r: (
+                f"<b>🧺 {r['container_name']}</b><br>"
+                f"Type: {r['content_type']}<br>"
+                f"Vulgraad: {r['fill_level']}%<br>"
+                f"Route: {r['new_route']}<br>"
+                f"Locatie: {r['address']}, {r['city']}"
+            ),
+            axis=1
+        )
         layers.append(pdk.Layer(
-            "ScatterplotLayer", data=sub,
+            "ScatterplotLayer",
+            data=part,
             get_position='[r_lon, r_lat]',
-            get_fill_color=kleur_map[rte],
-            stroked=True, get_line_color=[0,0,0],
-            line_width_min_pixels=1, radiusMinPixels=6,
-            radiusMaxPixels=10, pickable=True
+            get_fill_color=kleur_map[route],
+            stroked=True,
+            get_line_color=[0,0,0],
+            line_width_min_pixels=1,
+            radiusMinPixels=6,
+            radiusMaxPixels=10,
+            pickable=True
         ))
 
-    mid_lat = df_opt["r_lat"].mean()
-    mid_lon = df_opt["r_lon"].mean()
+    mid_lat, mid_lon = df_opt["r_lat"].mean(), df_opt["r_lon"].mean()
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=pdk.ViewState(
             latitude=mid_lat, longitude=mid_lon, zoom=12, pitch=0
         ),
         layers=layers,
-        tooltip={"html":"{tooltip}", "style":{"backgroundColor":"steelblue","color":"white"}}
+        tooltip={"html": "{tooltip}", "style": {"backgroundColor":"steelblue","color":"white"}}
     ))
-
-    st.subheader("📋 Containers per nieuwe route")
-    st.dataframe(
-        df_opt[["container_name","new_route","address","city"]],
-        use_container_width=True
-    )

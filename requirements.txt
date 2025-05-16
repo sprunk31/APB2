@@ -4,11 +4,9 @@ sqlalchemy>=2.0.30
 psycopg2-binary>=2.9.9
 openpyxl>=3.1.2
 streamlit-aggrid>=0.3.4
-streamlit-folium>=0.18.0
-folium>=0.16.0
 geopy>=2.4.1
-more-itertools>=10.7.0
 pydeck
 matplotlib
-scikit-learn
 numpy
+ortools>=9.6.25397
+requests
