@@ -752,6 +752,16 @@ with tab4:
                 cluster_to_route = {i: sel_routes[i] for i in range(k)}
                 df_opt["new_route"] = df_opt["cluster"].map(cluster_to_route)
 
+                st.subheader("📊 Aantal containers per nieuwe route")
+                count_df = (
+                    df_opt
+                    .groupby("new_route")
+                    .size()
+                    .reset_index(name="aantal")
+                    .sort_values("new_route")
+                )
+                st.dataframe(count_df, use_container_width=True)
+
                 # kleurenschema
                 kleuren = [
                     [255,   0,   0], [0, 100, 255], [0, 255,   0],
