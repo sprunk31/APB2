@@ -628,9 +628,9 @@ with tab3:
                 st.success("📝 Afwijking succesvol gelogd.")
                 st.session_state.refresh_needed = True
 
-# ─── TAB 4: ROUTE OPTIMALISATIE (gelijke aantallen) ─────────────────────────
+# ─── TAB 4: ROUTE OPTIMALISATIE (kleurpunten + knop) ─────────────────────────
 with tab4:
-    st.subheader("🚀 Route-optimalisatie (gelijke aantallen)")
+    st.subheader("🚀 Route-optimalisatie (kleurpunten)")
 
     sel_routes = st.session_state.geselecteerde_routes
     if len(sel_routes) < 2:
@@ -657,38 +657,16 @@ with tab4:
                 [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
             ]
 
-            st.markdown("### 🛣️ Genereer nieuwe routes (gelijke aantallen)")
+            st.markdown("### 🛣️ Genereer nieuwe routes")
             if st.button("Genereer routes"):
                 k = len(sel_routes)
-                n = len(df_opt)
+                coords = df_opt[["r_lat", "r_lon"]].values
+                kmeans = KMeans(n_clusters=k, random_state=42, init="k-means++")
+                df_opt["cluster"] = kmeans.fit_predict(coords)
 
-                # bepaal zwaartepunt
-                mid_lat = df_opt["r_lat"].mean()
-                mid_lon = df_opt["r_lon"].mean()
+                cluster_to_route = {i: sel_routes[i] for i in range(k)}
+                df_opt["new_route"] = df_opt["cluster"].map(cluster_to_route)
 
-                # hoek van ieder punt t.o.v. zwaartepunt
-                import math
-                df_opt["angle"] = df_opt.apply(
-                    lambda r: math.atan2(r["r_lat"]-mid_lat, r["r_lon"]-mid_lon), axis=1
-                )
-
-                # sorteer op hoek
-                df_opt = df_opt.sort_values("angle").reset_index(drop=True)
-
-                # verdeel in k bijna-gelijke segments
-                base = n // k
-                extra = n % k
-                sizes = [(base + 1 if i < extra else base) for i in range(k)]
-
-                # wijs elke index toe aan een nieuwe route
-                labels = []
-                idx = 0
-                for i, size in enumerate(sizes):
-                    labels += [sel_routes[i]] * size
-                    idx += size
-                df_opt["new_route"] = labels
-
-                # bouw de scatter-layers
                 kleur_map_new = {
                     route: kleuren[i % len(kleuren)] + [200]
                     for i, route in enumerate(sel_routes)
@@ -720,7 +698,9 @@ with tab4:
                         pickable=True
                     ))
 
-                # toon kaart gecentreerd op zwaartepunt
+                mid_lat = df_opt["r_lat"].mean()
+                mid_lon = df_opt["r_lon"].mean()
+
                 st.pydeck_chart(pdk.Deck(
                     map_style="mapbox://styles/mapbox/streets-v12",
                     initial_view_state=pdk.ViewState(
@@ -733,7 +713,6 @@ with tab4:
                     tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
                 ))
 
-                # overzichtstabel
                 st.subheader("📋 Containers per nieuwe route")
                 st.dataframe(
                     df_opt[["container_name", "new_route", "address", "city"]],
