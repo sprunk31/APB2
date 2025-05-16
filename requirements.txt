@@ -7,6 +7,3 @@ streamlit-aggrid>=0.3.4
 geopy>=2.4.1
 pydeck
 matplotlib
-numpy
-ortools>=9.6.25397
-requests
