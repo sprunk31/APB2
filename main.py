@@ -721,7 +721,7 @@ with tab4:
     # 2) Bouw locatieslijst + OSRM-table call
     coords = df_opt[["r_lon", "r_lat"]].values.tolist()
     # stel in jouw st.secrets de URL in, bv "http://localhost:5000"
-    OSRM_URL = st.secrets["osrm"]["table_url"]
+    OSRM_URL = st.secrets.get("osrm", {}).get("table_url", "http://router.project-osrm.org")
     coord_str = ";".join(f"{lon},{lat}" for lon, lat in coords)
     resp = requests.get(
         f"{OSRM_URL}/table/v1/driving/{coord_str}",
