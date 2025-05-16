@@ -723,12 +723,31 @@ with tab4:
     # stel in jouw st.secrets de URL in, bv "http://localhost:5000"
     OSRM_URL = st.secrets.get("osrm", {}).get("table_url", "http://router.project-osrm.org")
     coord_str = ";".join(f"{lat},{lon}" for lat, lon in coords)
-    resp = requests.get(
-        f"{OSRM_URL}/table/v1/driving/{coord_str}",
-        params={"annotations": "distance"}
-    )
-    resp.raise_for_status()
-    matrix = np.array(resp.json()["distances"], dtype=int)  # in meters
+    # probeer OSRM-table, maar val terug op geodetische afstand
+    try:
+        resp = requests.get(
+            f"{OSRM_URL}/table/v1/driving/{coord_str}",
+            params={"annotations": "distance"}
+        )
+        resp.raise_for_status()
+        matrix = np.array(resp.json()["distances"], dtype=int)
+    except Exception as e:
+        st.warning("⚠️ OSRM table failed, falling back to geodesic distances.")
+        from geopy.distance import geodesic
+
+        N = len(coords)
+        matrix = np.zeros((N, N), dtype=int)
+        for i in range(N):
+            for j in range(N):
+                if i == j:
+                    matrix[i, j] = 0
+                else:
+                    # geodesic expects (lat, lon)
+                    matrix[i, j] = int(
+                        geodesic((coords[i][1], coords[i][0]),
+                                 (coords[j][1], coords[j][0])
+                                 ).meters
+                    )
 
     # 3) OR-Tools setup
     N = len(coords)
