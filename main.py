@@ -11,6 +11,7 @@ from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
 import numpy as np
+from sklearn.cluster import KMeans
 
 def haversine(lon1, lat1, lon2, lat2):
     """Bereken afstand in meters tussen twee GPS-punten."""
