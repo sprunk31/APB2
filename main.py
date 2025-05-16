@@ -784,25 +784,15 @@ with tab4:
         "Capacity"
     )
 
-    # optioneel: max afstand per route (bv. 100 km)
-    max_route_m = 100_000
-    routing.AddDimension(
-        transit_callback_idx,
-        0,
-        max_route_m,
-        True,
-        "Distance"
-    )
-
     # zoekparameters
     search_params = pywrapcp.DefaultRoutingSearchParameters()
     search_params.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+        routing_enums_pb2.FirstSolutionStrategy.CHEAPEST_INSERTION
     )
     search_params.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     )
-    search_params.time_limit.seconds = 10
+    search_params.time_limit.seconds = 120  # van 10 → 120 seconden
 
     # ─── Oplossen met fallback naar Tabu Search ─────────
     solution = routing.SolveWithParameters(search_params)
