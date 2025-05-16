@@ -701,73 +701,79 @@ with tab4:
 
     # ── Configuratie
     k = len(sel_routes)
-    distance_threshold = 200   # meters tussen clusters
-    n_super = min(3, k)        # initiale regio’s
-    n_seeds  = 20              # pogingen per sub-cluster
-    max_iter_bal = 100         # balans-iteraties
+    distance_threshold = 200   # meters
+    n_super = min(3, k)
+    n_seeds  = 20
+    max_iter_bal = 100
 
     # Coördinaten in meters
-    lons = df_opt["r_lon"].values; lats = df_opt["r_lat"].values
+    lons, lats = df_opt["r_lon"].values, df_opt["r_lat"].values
     coords_m = project_to_meters(lons, lats)
     N = len(coords_m)
 
-    # 1) Maak super-clusters (regio’s)
+    # 1) Super-clusters
     km_sup = KMeans(n_clusters=n_super, random_state=42, init="k-means++")
     sup_labels = km_sup.fit_predict(coords_m)
 
-    # Bepaal aantal sub-clusters per regio
-    # proportioneel naar regionaal aantal punten
-    reg_counts = np.array([np.sum(sup_labels==r) for r in range(n_super)])
-    k_props   = reg_counts / N * k
-    k_floor   = np.floor(k_props).astype(int)
-    remainder = k - k_floor.sum()
-    # verdeel resten naar grootste fractionelen
-    fracs     = k_props - k_floor
-    for idx in np.argsort(-fracs)[:remainder]:
-        k_floor[idx] += 1
-    k_per_reg = k_floor
+    # 2) Verdeel k over regio’s
+    counts = np.array([np.sum(sup_labels==r) for r in range(n_super)])
+    props  = counts / N * k
+    floor  = np.floor(props).astype(int)
+    rem    = k - floor.sum()
+    fracs  = props - floor
+    for idx in np.argsort(-fracs)[:rem]:
+        floor[idx] += 1
+    k_per_reg = floor
 
-    # 2) Binnen elke regio: balanced KMeans
+    # 3) Binnen elke regio balanced KMeans
     global_labels = np.empty(N, dtype=int)
     offset = 0
     for region in range(n_super):
         idxs = np.where(sup_labels==region)[0]
-        n_r  = len(idxs)
-        kr   = k_per_reg[region]
-        if kr==0 or n_r==0:
+        kr = k_per_reg[region]
+        if kr < 1 or idxs.size == 0:
             continue
 
         coords_r = coords_m[idxs]
-        # cluster lokaal
         best_r = None
         for seed in range(n_seeds):
             km = KMeans(n_clusters=kr, random_state=100+seed, init="k-means++")
             lab0 = km.fit_predict(coords_r)
-            lab1 = balance_clusters(coords_r, lab0, kr,
-                                     n_r//kr, n_r//kr + (1 if n_r%kr else 0),
-                                     max_iter=max_iter_bal)
-            # eenvoudige centroid-check
-            cents_r = np.array([
-                coords_r[lab1==i].mean(axis=0)
-                for i in range(kr)
-            ])
-            if np.min([np.linalg.norm(cents_r[i]-cents_r[j])
-                       for i in range(kr) for j in range(i+1,kr)]) \
-               >= distance_threshold:
-                best_r = lab1; break
+            lab1 = balance_clusters(
+                coords_r, lab0, kr,
+                size_min=coords_r.shape[0]//kr,
+                size_max=coords_r.shape[0]//kr + (1 if coords_r.shape[0]%kr else 0),
+                max_iter=max_iter_bal
+            )
+
+            # alleen checken bij ≥2 clusters
+            if kr > 1:
+                cents_r = np.array([
+                    coords_r[lab1==i].mean(axis=0) for i in range(kr)
+                ])
+                # onderlinge centroid-afstand
+                dists = [
+                    np.linalg.norm(cents_r[i]-cents_r[j])
+                    for i in range(kr) for j in range(i+1, kr)
+                ]
+                if min(dists) < distance_threshold:
+                    continue
+            # accept
+            best_r = lab1
+            break
+
         if best_r is None:
             best_r = lab1
 
-        # schrijf naar globale labels
         global_labels[idxs] = offset + best_r
         offset += kr
 
-    # 3) Toewijzen aan dataframe
+    # 4) Toewijzen
     df_opt["cluster"]   = global_labels
     mapping = {i: sel_routes[i] for i in range(k)}
     df_opt["new_route"] = df_opt["cluster"].map(mapping)
 
-    # 4) Aantallen per nieuwe route
+    # 5) Aantallen per route
     st.subheader("📊 Aantal containers per nieuwe route")
     cnt = (
         df_opt.groupby("new_route")
@@ -777,7 +783,7 @@ with tab4:
     )
     st.dataframe(cnt, use_container_width=True)
 
-    # 5) Visualisatie
+    # 6) Visualisatie
     kleuren = [
       [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
       [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
@@ -802,13 +808,11 @@ with tab4:
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[rte],
             stroked=True, get_line_color=[0,0,0],
-            line_width_min_pixels=1,
-            radiusMinPixels=6, radiusMaxPixels=10,
-            pickable=True
+            line_width_min_pixels=1, radiusMinPixels=6,
+            radiusMaxPixels=10, pickable=True
         ))
 
-    mid_lat = df_opt["r_lat"].mean()
-    mid_lon = df_opt["r_lon"].mean()
+    mid_lat, mid_lon = df_opt["r_lat"].mean(), df_opt["r_lon"].mean()
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=pdk.ViewState(
