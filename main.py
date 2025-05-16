@@ -698,7 +698,7 @@ with tab4:
     sel_routes = st.session_state.geselecteerde_routes
     if len(sel_routes) < 2:
         st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
-        return  # klaar
+        st.stop()
 
     df_r = load_routes_for_map()
     df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
