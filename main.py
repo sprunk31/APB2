@@ -714,15 +714,15 @@ with tab4:
     optim_type = st.selectbox("Kies content_type voor weergave", common)
     df_opt = df_sel[
         (df_sel["content_type"] == optim_type) &
-        df_sel["r_lat"].notna() &
-        df_sel["r_lon"].notna()
+        df_sel["r_lon"].notna() &
+        df_sel["r_lat"].notna()
     ].copy().reset_index(drop=True)
 
     # 2) Bouw locatieslijst + OSRM-table call
-    coords = df_opt[["r_lat", "r_lon"]].values.tolist()
+    coords = df_opt[["r_lon", "r_lat"]].values.tolist()
     # stel in jouw st.secrets de URL in, bv "http://localhost:5000"
     OSRM_URL = st.secrets.get("osrm", {}).get("table_url", "http://router.project-osrm.org")
-    coord_str = ";".join(f"{lat},{lon}" for lat, lon in coords)
+    coord_str = ";".join(f"{lon},{lat}" for lon, lat in coords)
     # probeer OSRM-table, maar val terug op geodetische afstand
     try:
         resp = requests.get(
