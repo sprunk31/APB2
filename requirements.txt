@@ -12,3 +12,4 @@ pydeck
 matplotlib
 scikit-learn
 scikit-learn-extra
+numpy
