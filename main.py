@@ -26,58 +26,59 @@ def farthest_point_seeds_indices(coords, k):
     n = coords.shape[0]
     seeds = [np.random.randint(n)]
     for _ in range(1, k):
-        # min afstand tot bestaande seeds
         d = np.min([np.linalg.norm(coords - coords[s], axis=1) for s in seeds], axis=0)
         seeds.append(int(np.argmax(d)))
     return seeds
 
-def capacitated_greedy_assignment(coords, seeds_idx, caps):
+def capacity_balance(coords, labels, caps):
     """
-    coords: Nx2 array in meters
-    seeds_idx: list van k indices
-    caps: list van k capaciteiten (sum(caps) >= N)
+    Één ronde balancing:
+    - Clusters die te groot zijn maken hun verste punten vrij.
+    - Die punten krijgen de clusters in volgorde van hun afstand (volgens caps).
     """
-    N = coords.shape[0]
-    k = len(seeds_idx)
-    labels = np.full(N, -1, dtype=int)
-    sizes = [0]*k
+    k = len(caps)
+    # bereken huidige grootte en centroids
+    sizes = np.array([np.sum(labels==i) for i in range(k)])
+    cents = np.vstack([
+        coords[labels==i].mean(axis=0) if sizes[i]>0 else np.zeros(2)
+        for i in range(k)
+    ])
 
-    # 1) zet seeds vast
-    for j, idx in enumerate(seeds_idx):
-        labels[idx] = j
-        sizes[j] += 1
+    # 1) Pool verst verwijderde punten uit overvolle clusters
+    pool = []
+    for i in range(k):
+        over = sizes[i] - caps[i]
+        if over > 0:
+            idxs = np.where(labels==i)[0]
+            dists = np.linalg.norm(coords[idxs]-cents[i], axis=1)
+            # kies de 'over' verste punten
+            remove = idxs[np.argsort(dists)[-over:]]
+            labels[remove] = -1
+            pool.extend(remove.tolist())
 
-    # 2) bereken dist matrix punt→seed
-    seed_coords = coords[seeds_idx]  # k×2
-    dmat = np.linalg.norm(coords[:, None, :] - seed_coords[None, :, :], axis=2)  # N×k
-
-    # 3) flatten alle (punt,cluster) paren, sorteer op afstand oplopend
-    pairs = [(dmat[i,j], i, j) for i in range(N) for j in range(k)]
-    pairs.sort(key=lambda x: x[0])
-
-    # 4) greedy assign
-    for dist, i, j in pairs:
-        if labels[i] != -1:
-            continue
-        if sizes[j] < caps[j]:
-            labels[i] = j
-            sizes[j] += 1
-
-    # 5) zorg dat alle punten zijn toegewezen
-    unassigned = np.where(labels == -1)[0]
-    if unassigned.size > 0:
-        for i in unassigned:
-            # wijs toe aan de seed met de minste huidige load (breek ties op afstand)
-            d_to_seeds = dmat[i]
-            order = np.argsort(d_to_seeds)
-            for j in order:
-                # laat overschrijding toe als écht nodig
-                labels[i] = j
-                sizes[j] += 1
+    # 2) Reassign uit pool aan onderbezet clusters
+    if pool:
+        pool = np.array(pool)
+        # afstand matrix tussen pool-punten en alle centroids
+        dmat = np.linalg.norm(coords[pool, None, :] - cents[None, :, :], axis=2)  # P×k
+        # loop onderbezet clusters op oplopende index
+        for i in range(k):
+            need = caps[i] - np.sum(labels==i)
+            if need <= 0:
+                continue
+            # vind pool-punten gesorteerd op afstand tot this centroid
+            order = np.argsort(dmat[:, i])
+            chosen = order[:need]
+            labels[pool[chosen]] = i
+            # verwijder deze uit pool
+            mask = np.ones(len(pool), bool)
+            mask[chosen] = False
+            pool = pool[mask]
+            dmat = dmat[mask]
+            if pool.size == 0:
                 break
 
     return labels
-
 ## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -724,23 +725,27 @@ with tab4:
     k = len(sel_routes)
     N = len(df_opt)
     base, extra = divmod(N, k)
-    # eerste 'extra' clusters krijgen (base+1), de rest base
-    caps = [base+1 if i < extra else base for i in range(k)]
+    caps = [base+1 if i<extra else base for i in range(k)]
 
-    # projecteer coords naar meters
+    # projecteer coördinaten naar meters
     coords_m = project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)
 
-    # 1) kies farthest-first seeds
+    # 1) Pick farthest-first seeds
     seeds_idx = farthest_point_seeds_indices(coords_m, k)
 
-    # 2) greedy capacitated assignment
-    labels = capacitated_greedy_assignment(coords_m, seeds_idx, caps)
+    # 2) Init labels op basis van dichtsbijzijnde seed
+    seed_coords = coords_m[seeds_idx]
+    dmat = np.linalg.norm(coords_m[:, None, :] - seed_coords[None, :, :], axis=2)
+    init_labels = np.argmin(dmat, axis=1)
 
-    # 3) schrijf terug naar df_opt
+    # 3) Balancen van labels naar capaciteit
+    labels = capacity_balance(coords_m, init_labels.copy(), caps)
+
+    # 4) Schrijf terug naar dataframe
     df_opt["cluster"]   = labels
     df_opt["new_route"] = df_opt["cluster"].map({i: sel_routes[i] for i in range(k)})
 
-    # 📊 Aantal per nieuwe route
+    # 5) 📊 Aantal per nieuwe route
     st.subheader("📊 Aantal containers per nieuwe route")
     count_df = (
         df_opt.groupby("new_route")
@@ -750,7 +755,7 @@ with tab4:
     )
     st.dataframe(count_df, use_container_width=True)
 
-    # 🗺️ Visualisatie
+    # 6) 🗺️ Visualisatie
     kleuren = [
         [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
         [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
