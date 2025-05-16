@@ -21,47 +21,54 @@ def project_to_meters(lons, lats):
     y = (lats - lat0) * m_per_deg_lat
     return np.vstack([x, y]).T
 
-def farthest_point_seeds(coords, k):
+def farthest_point_seeds_indices(coords, k):
+    n = coords.shape[0]
+    # eerste seed kiest willekeurig
+    seed_idxs = [np.random.randint(n)]
+    for _ in range(1, k):
+        # voor elke niet‐gekozen punt: bereken minimale afstand tot bestaande seeds
+        dists = np.min(
+            [np.linalg.norm(coords - coords[s], axis=1) for s in seed_idxs],
+            axis=0
+        )
+        next_idx = int(np.argmax(dists))
+        seed_idxs.append(next_idx)
+    return seed_idxs
+
+def capacitated_farthest_clustering(coords, k, size_min, size_max):
     """
-    Kies k startpunten door steeds het punt te nemen dat
-    de maximale minimale afstand heeft tot de reeds gekozen seeds.
+    1) Kies k seeds via farthest-first.
+    2) Wijs overigen toe in dalende volgorde van min afstand tot seeds,
+       altijd aan de dichtstbijzijnde cluster met ruimte (< size_max).
+    3) Garandeert max spreiding + bijna-evenwichtige grootte.
     """
     n = coords.shape[0]
-    # 1) kies willekeurig eerste index
-    seeds = [np.random.randint(n)]
-    # 2) voeg telkens het punt toe dat het verst verwijderd is van alle reeds gekozen
-    for _ in range(1, k):
-        dists = np.min([np.linalg.norm(coords - coords[s], axis=1) for s in seeds], axis=0)
-        next_seed = int(np.argmax(dists))
-        seeds.append(next_seed)
-    return coords[seeds]
+    seeds = farthest_point_seeds_indices(coords, k)
+    # init clusters en toewijzing
+    clusters = {i: [seeds[i]] for i in range(k)}
+    assigned = set(seeds)
 
-def balance_clusters(coords, labels, k, size_min, size_max, max_iter=100):
-    labels = labels.copy()
-    for _ in range(max_iter):
-        sizes = np.array([np.sum(labels==i) for i in range(k)])
-        over = np.where(sizes>size_max)[0]
-        under = np.where(sizes<size_min)[0]
-        if len(over)==0 and len(under)==0:
-            break
-        cents = np.array([
-            coords[labels==i].mean(axis=0) if np.any(labels==i)
-            else coords[np.random.choice(len(coords))]
-            for i in range(k)
-        ])
-        for j in under:
-            need = size_min - sizes[j]
-            if need<=0: continue
-            for i in over:
-                extra = sizes[i] - size_max
-                if extra<=0: continue
-                take = min(extra, need)
-                inds = np.where(labels==i)[0]
-                d = np.linalg.norm(coords[inds] - cents[j], axis=1)
-                move = inds[np.argsort(d)[:take]]
-                labels[move] = j
-                sizes[i] -= take; sizes[j] += take; need -= take
-                if need==0: break
+    # afstands‐matrix punt ↔ seed
+    seed_coords = coords[seeds]
+    dist = np.linalg.norm(coords[:, None, :] - seed_coords[None, :, :], axis=2)  # n×k
+
+    # sorteer punten op descending min‐afstand tot seeds
+    order = np.argsort(-np.min(dist, axis=1))
+
+    for idx in order:
+        if idx in assigned:
+            continue
+        # vind dichtstbijzijnde seed‐cluster met ruimte
+        for j in np.argsort(dist[idx]):
+            if len(clusters[j]) < size_max:
+                clusters[j].append(idx)
+                assigned.add(idx)
+                break
+
+    # labels array
+    labels = np.empty(n, dtype=int)
+    for i, idxs in clusters.items():
+        labels[idxs] = i
     return labels
 
 ## ─── LOGIN ───────────────────────────────────────
@@ -698,8 +705,9 @@ with tab4:
 
     optim_type = st.selectbox("Kies content_type voor weergave", common)
     df_opt = df_sel[
-        (df_sel["content_type"]==optim_type) &
-        df_sel["r_lat"].notna() & df_sel["r_lon"].notna()
+        (df_sel["content_type"] == optim_type) &
+        df_sel["r_lat"].notna() &
+        df_sel["r_lon"].notna()
     ].copy()
 
     st.markdown("### 🛣️ Genereer nieuwe routes")
@@ -708,78 +716,41 @@ with tab4:
 
     # ── Configuratie ─────────────────────────────
     k = len(sel_routes)
-    max_iter = 100
-    distance_threshold = 200
+    # bepaal balanced cluster‐grootte
+    N = len(df_opt)
+    base, extra = divmod(N, k)
+    size_min = base
+    size_max = base + (1 if extra > 0 else 0)
 
-    # Projectie naar meters
-    lons, lats = df_opt["r_lon"].values, df_opt["r_lat"].values
-    coords_m = project_to_meters(lons, lats)
-    N = coords_m.shape[0]
+    # zet coords in meter‐space
+    coords_m = project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)
 
-    # Evenwichtige cluster-grootte
-    base, extra = N // k, N % k
-    size_min, size_max = base, base + (1 if extra>0 else 0)
+    # ** optimale clustering **
+    labels = capacitated_farthest_clustering(coords_m, k, size_min, size_max)
 
-    # 1) Farthest-first seeding
-    centroids = farthest_point_seeds(coords_m, k)
-    centroids_history = [centroids.copy()]
-
-    # 2) Hand-rolled KMeans-loop
-    for it in range(1, max_iter+1):
-        # toewijzen op basis van dichtsbijzijnde centroid
-        dists = np.linalg.norm(coords_m[:, None, :] - centroids[None, :, :], axis=2)
-        labels = np.argmin(dists, axis=1)
-
-        # recompute centroids
-        new_centroids = np.vstack([
-            coords_m[labels==i].mean(axis=0) if np.any(labels==i) else centroids[i]
-            for i in range(k)
-        ])
-        centroids_history.append(new_centroids.copy())
-
-        # check convergentie
-        if np.allclose(new_centroids, centroids):
-            break
-        centroids = new_centroids
-
-    # 3) Toon de centroid‐geschiedenis
-    st.subheader("🔄 Centroids per iteratie")
-    for idx, cen in enumerate(centroids_history):
-        st.write(f"Iteratie {idx}", cen)
-
-    # 4) Gebruik de laatste labels als init_labels voor balancing
-    init_labels = labels
-
-    # 5) Balance clustering
-    final_labels = balance_clusters(
-        coords_m, init_labels, k, size_min, size_max, max_iter=max_iter
-    )
-
-    # 6) Centroid‐check
-    final_cents = np.vstack([
-        coords_m[final_labels==i].mean(axis=0) for i in range(k)
-    ])
-    dmat = np.linalg.norm(final_cents[:, None] - final_cents[None, :], axis=2)
-    np.fill_diagonal(dmat, np.inf)
-    if dmat.min() < distance_threshold:
-        st.warning(f"Sommige centroids staan <{distance_threshold} m van elkaar.")
-
-    # 7) Toewijzen en visualiseren
-    df_opt["cluster"]   = final_labels
+    # toewijzen aan dataframe
+    df_opt["cluster"] = labels
     df_opt["new_route"] = df_opt["cluster"].map({i: sel_routes[i] for i in range(k)})
 
+    # 📊 Telling per nieuwe route
     st.subheader("📊 Aantal containers per nieuwe route")
-    cnt = (df_opt.groupby("new_route")
-                .size()
-                .reset_index(name="aantal")
-                .sort_values("new_route"))
+    cnt = (
+        df_opt.groupby("new_route")
+              .size()
+              .reset_index(name="aantal")
+              .sort_values("new_route")
+    )
     st.dataframe(cnt, use_container_width=True)
 
+    # 🗺️ Visualisatie
     kleuren = [
       [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
       [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
     ]
-    kleur_map = {r: kleuren[i%len(kleuren)]+[200] for i,r in enumerate(sel_routes)}
+    kleur_map = {
+        rte: kleuren[i % len(kleuren)] + [200]
+        for i, rte in enumerate(sel_routes)
+    }
 
     layers = []
     for rte in sel_routes:
@@ -796,18 +767,20 @@ with tab4:
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[rte],
             stroked=True, get_line_color=[0,0,0],
-            line_width_min_pixels=1, radiusMinPixels=6,
-            radiusMaxPixels=10, pickable=True
+            line_width_min_pixels=1,
+            radiusMinPixels=6, radiusMaxPixels=10,
+            pickable=True
         ))
 
-    mid_lat, mid_lon = df_opt["r_lat"].mean(), df_opt["r_lon"].mean()
+    mid_lat = df_opt["r_lat"].mean()
+    mid_lon = df_opt["r_lon"].mean()
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=pdk.ViewState(
             latitude=mid_lat, longitude=mid_lon, zoom=12, pitch=0
         ),
         layers=layers,
-        tooltip={"html":"{tooltip}","style":{"backgroundColor":"steelblue","color":"white"}}
+        tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
     ))
 
     st.subheader("📋 Containers per nieuwe route")
