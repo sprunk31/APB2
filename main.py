@@ -10,8 +10,7 @@ from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
-from sklearn_extra.cluster import KMeansConstrained
-import numpy as np
+
 ## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
