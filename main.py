@@ -15,60 +15,67 @@ from sklearn.cluster import KMeans
 
 def project_to_meters(lons, lats):
     lat0 = np.mean(lats)
-    m_per_deg_lat = 111_320
-    m_per_deg_lon = 111_320 * np.cos(np.deg2rad(lat0))
-    x = (lons - np.mean(lons)) * m_per_deg_lon
-    y = (lats - lat0) * m_per_deg_lat
+    m_lat = 111_320
+    m_lon = 111_320 * np.cos(np.deg2rad(lat0))
+    x = (lons - np.mean(lons)) * m_lon
+    y = (lats - lat0) * m_lat
     return np.vstack([x, y]).T
 
 def farthest_point_seeds_indices(coords, k):
+    """Return k distinct indices via farthest-first."""
     n = coords.shape[0]
-    # eerste seed kiest willekeurig
-    seed_idxs = [np.random.randint(n)]
+    seeds = [np.random.randint(n)]
     for _ in range(1, k):
-        # voor elke niet‐gekozen punt: bereken minimale afstand tot bestaande seeds
-        dists = np.min(
-            [np.linalg.norm(coords - coords[s], axis=1) for s in seed_idxs],
-            axis=0
-        )
-        next_idx = int(np.argmax(dists))
-        seed_idxs.append(next_idx)
-    return seed_idxs
+        # min afstand tot bestaande seeds
+        d = np.min([np.linalg.norm(coords - coords[s], axis=1) for s in seeds], axis=0)
+        seeds.append(int(np.argmax(d)))
+    return seeds
 
-def capacitated_farthest_clustering(coords, k, size_min, size_max):
+def capacitated_greedy_assignment(coords, seeds_idx, caps):
     """
-    1) Kies k seeds via farthest-first.
-    2) Wijs overigen toe in dalende volgorde van min afstand tot seeds,
-       altijd aan de dichtstbijzijnde cluster met ruimte (< size_max).
-    3) Garandeert max spreiding + bijna-evenwichtige grootte.
+    coords: Nx2 array in meters
+    seeds_idx: list van k indices
+    caps: list van k capaciteiten (sum(caps) >= N)
     """
-    n = coords.shape[0]
-    seeds = farthest_point_seeds_indices(coords, k)
-    # init clusters en toewijzing
-    clusters = {i: [seeds[i]] for i in range(k)}
-    assigned = set(seeds)
+    N = coords.shape[0]
+    k = len(seeds_idx)
+    labels = np.full(N, -1, dtype=int)
+    sizes = [0]*k
 
-    # afstands‐matrix punt ↔ seed
-    seed_coords = coords[seeds]
-    dist = np.linalg.norm(coords[:, None, :] - seed_coords[None, :, :], axis=2)  # n×k
+    # 1) zet seeds vast
+    for j, idx in enumerate(seeds_idx):
+        labels[idx] = j
+        sizes[j] += 1
 
-    # sorteer punten op descending min‐afstand tot seeds
-    order = np.argsort(-np.min(dist, axis=1))
+    # 2) bereken dist matrix punt→seed
+    seed_coords = coords[seeds_idx]  # k×2
+    dmat = np.linalg.norm(coords[:, None, :] - seed_coords[None, :, :], axis=2)  # N×k
 
-    for idx in order:
-        if idx in assigned:
+    # 3) flatten alle (punt,cluster) paren, sorteer op afstand oplopend
+    pairs = [(dmat[i,j], i, j) for i in range(N) for j in range(k)]
+    pairs.sort(key=lambda x: x[0])
+
+    # 4) greedy assign
+    for dist, i, j in pairs:
+        if labels[i] != -1:
             continue
-        # vind dichtstbijzijnde seed‐cluster met ruimte
-        for j in np.argsort(dist[idx]):
-            if len(clusters[j]) < size_max:
-                clusters[j].append(idx)
-                assigned.add(idx)
+        if sizes[j] < caps[j]:
+            labels[i] = j
+            sizes[j] += 1
+
+    # 5) zorg dat alle punten zijn toegewezen
+    unassigned = np.where(labels == -1)[0]
+    if unassigned.size > 0:
+        for i in unassigned:
+            # wijs toe aan de seed met de minste huidige load (breek ties op afstand)
+            d_to_seeds = dmat[i]
+            order = np.argsort(d_to_seeds)
+            for j in order:
+                # laat overschrijding toe als écht nodig
+                labels[i] = j
+                sizes[j] += 1
                 break
 
-    # labels array
-    labels = np.empty(n, dtype=int)
-    for i, idxs in clusters.items():
-        labels[idxs] = i
     return labels
 
 ## ─── LOGIN ───────────────────────────────────────
@@ -706,8 +713,7 @@ with tab4:
     optim_type = st.selectbox("Kies content_type voor weergave", common)
     df_opt = df_sel[
         (df_sel["content_type"] == optim_type) &
-        df_sel["r_lat"].notna() &
-        df_sel["r_lon"].notna()
+        df_sel["r_lat"].notna() & df_sel["r_lon"].notna()
     ].copy()
 
     st.markdown("### 🛣️ Genereer nieuwe routes")
@@ -716,40 +722,42 @@ with tab4:
 
     # ── Configuratie ─────────────────────────────
     k = len(sel_routes)
-    # bepaal balanced cluster‐grootte
     N = len(df_opt)
     base, extra = divmod(N, k)
-    size_min = base
-    size_max = base + (1 if extra > 0 else 0)
+    # eerste 'extra' clusters krijgen (base+1), de rest base
+    caps = [base+1 if i < extra else base for i in range(k)]
 
-    # zet coords in meter‐space
+    # projecteer coords naar meters
     coords_m = project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)
 
-    # ** optimale clustering **
-    labels = capacitated_farthest_clustering(coords_m, k, size_min, size_max)
+    # 1) kies farthest-first seeds
+    seeds_idx = farthest_point_seeds_indices(coords_m, k)
 
-    # toewijzen aan dataframe
-    df_opt["cluster"] = labels
+    # 2) greedy capacitated assignment
+    labels = capacitated_greedy_assignment(coords_m, seeds_idx, caps)
+
+    # 3) schrijf terug naar df_opt
+    df_opt["cluster"]   = labels
     df_opt["new_route"] = df_opt["cluster"].map({i: sel_routes[i] for i in range(k)})
 
-    # 📊 Telling per nieuwe route
+    # 📊 Aantal per nieuwe route
     st.subheader("📊 Aantal containers per nieuwe route")
-    cnt = (
+    count_df = (
         df_opt.groupby("new_route")
               .size()
               .reset_index(name="aantal")
               .sort_values("new_route")
     )
-    st.dataframe(cnt, use_container_width=True)
+    st.dataframe(count_df, use_container_width=True)
 
     # 🗺️ Visualisatie
     kleuren = [
-      [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
-      [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
+        [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
+        [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
     ]
     kleur_map = {
-        rte: kleuren[i % len(kleuren)] + [200]
-        for i, rte in enumerate(sel_routes)
+        route: kleuren[i % len(kleuren)] + [200]
+        for i, route in enumerate(sel_routes)
     }
 
     layers = []
@@ -767,9 +775,8 @@ with tab4:
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[rte],
             stroked=True, get_line_color=[0,0,0],
-            line_width_min_pixels=1,
-            radiusMinPixels=6, radiusMaxPixels=10,
-            pickable=True
+            line_width_min_pixels=1, radiusMinPixels=6,
+            radiusMaxPixels=10, pickable=True
         ))
 
     mid_lat = df_opt["r_lat"].mean()
@@ -780,9 +787,11 @@ with tab4:
             latitude=mid_lat, longitude=mid_lon, zoom=12, pitch=0
         ),
         layers=layers,
-        tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
+        tooltip={"html":"{tooltip}", "style":{"backgroundColor":"steelblue","color":"white"}}
     ))
 
     st.subheader("📋 Containers per nieuwe route")
-    st.dataframe(df_opt[["container_name","new_route","address","city"]],
-                 use_container_width=True)
+    st.dataframe(
+        df_opt[["container_name","new_route","address","city"]],
+        use_container_width=True
+    )
