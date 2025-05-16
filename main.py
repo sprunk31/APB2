@@ -708,10 +708,10 @@ with tab4:
 
     # ── Configuratie ─────────────────────────────
     k = len(sel_routes)
-    distance_threshold = 200   # minimale afstand in m (centroids)
-    max_iter = 100             # iteraties voor balance_clusters
+    distance_threshold = 200    # minimale afstand in m (centroids)
+    max_iter = 100              # iteraties voor balance_clusters
 
-    # Projecteer coords naar meters
+    # Projecteer coordinates naar meters
     lons, lats = df_opt["r_lon"].values, df_opt["r_lat"].values
     coords_m = project_to_meters(lons, lats)
     N = coords_m.shape[0]
@@ -722,42 +722,28 @@ with tab4:
     size_min = base
     size_max = base + (1 if extra>0 else 0)
 
-    # Farthest-first seeds
+    # 1) Farthest-first seeding
     init_centroids = farthest_point_seeds(coords_m, k)
 
-    # 1) Echte KMeans met onze seeds
-    km = KMeans(
-        n_clusters=k,
-        init=init_centroids,
-        n_init=1,
-        max_iter=300,
-        random_state=42
-    )
+    # 2) KMeans + balance
+    km = KMeans(n_clusters=k, init=init_centroids, n_init=1, max_iter=300, random_state=42)
     init_labels = km.fit_predict(coords_m)
+    labels = balance_clusters(coords_m, init_labels, k, size_min, size_max, max_iter=max_iter)
 
-    # 2) Balance-toewijzing
-    labels = balance_clusters(
-        coords_m, init_labels, k,
-        size_min=size_min,
-        size_max=size_max,
-        max_iter=max_iter
-    )
-
-    # 3) Controleer en waarschuw als centroids < threshold staan
+    # 3) Centroid-check
     cents = np.array([coords_m[labels==i].mean(axis=0) for i in range(k)])
-    dmat = np.linalg.norm(cents[:,None] - cents[None,:], axis=2)
+    dmat = np.linalg.norm(cents[:, None] - cents[None, :], axis=2)
     np.fill_diagonal(dmat, np.inf)
-    if np.min(dmat) < distance_threshold:
+    if dmat.min() < distance_threshold:
         st.warning(
-            f"Sommige centroids staan dichter dan {distance_threshold} m van elkaar.\n"
-            "De farthest-first seeding is aangehouden, maar met deze dataset kun je de\ndrempel of dataset-filter verder finetunen."
+            f"Sommige centroids staan dichter dan {distance_threshold} m van elkaar."
         )
 
-    # Toewijzen aan DF voor visualisatie
+    # 4) Toewijzen
     df_opt["cluster"] = labels
     df_opt["new_route"] = df_opt["cluster"].map({i: sel_routes[i] for i in range(k)})
 
-    # 📊 Aantal per nieuwe route
+    # 5) Aantallen per nieuwe route
     st.subheader("📊 Aantal containers per nieuwe route")
     cnt = (
         df_opt.groupby("new_route")
@@ -767,7 +753,7 @@ with tab4:
     )
     st.dataframe(cnt, use_container_width=True)
 
-    # Kaart
+    # 6) Visualisatie
     kleuren = [
       [255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
       [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]
@@ -776,7 +762,10 @@ with tab4:
 
     layers = []
     for rte in sel_routes:
-        sub = df_opt[df_opt["new_route"]==rte]
+        # expliciete copy om SettingWithCopyWarning te voorkomen
+        sub = df_opt[df_opt["new_route"] == rte].copy()
+
+        # nu veilig kolom toevoegen
         sub["tooltip"] = sub.apply(lambda r: (
             f"<b>🧺 {r['container_name']}</b><br>"
             f"Type: {r['content_type']}<br>"
@@ -784,13 +773,18 @@ with tab4:
             f"Route: {r['new_route']}<br>"
             f"Locatie: {r['address']}, {r['city']}"
         ), axis=1)
+
         layers.append(pdk.Layer(
-            "ScatterplotLayer", data=sub,
+            "ScatterplotLayer",
+            data=sub,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[rte],
-            stroked=True, get_line_color=[0,0,0],
-            line_width_min_pixels=1, radiusMinPixels=6,
-            radiusMaxPixels=10, pickable=True
+            stroked=True,
+            get_line_color=[0, 0, 0],
+            line_width_min_pixels=1,
+            radiusMinPixels=6,
+            radiusMaxPixels=10,
+            pickable=True
         ))
 
     mid_lat, mid_lon = df_opt["r_lat"].mean(), df_opt["r_lon"].mean()
@@ -800,8 +794,11 @@ with tab4:
             latitude=mid_lat, longitude=mid_lon, zoom=12, pitch=0
         ),
         layers=layers,
-        tooltip={"html":"{tooltip}","style":{"backgroundColor":"steelblue","color":"white"}}
+        tooltip={"html":"{tooltip}", "style":{"backgroundColor":"steelblue","color":"white"}}
     ))
 
     st.subheader("📋 Containers per nieuwe route")
-    st.dataframe(df_opt[["container_name","new_route","address","city"]], use_container_width=True)
+    st.dataframe(
+        df_opt[["container_name","new_route","address","city"]],
+        use_container_width=True
+    )
