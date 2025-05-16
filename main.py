@@ -671,7 +671,6 @@ with tab3:
                 st.session_state.refresh_needed = True
 
 # ─── TAB 4: ROUTE OPTIMALISATIE (kleurpunten + knop) ─────────────────────────
-# ─── TAB 4: ROUTE OPTIMALISATIE VIA OR-TOOLS CVRP ─────────────
 with tab4:
     st.subheader("🚀 Route-optimalisatie via OR-Tools CVRP (relaxed)")
 
@@ -686,7 +685,7 @@ with tab4:
     df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
     common = df_sel["content_type"].value_counts()[lambda x: x>=2].index.tolist()
     if not common:
-        st.warning("Onder de geselecteerde routes is géén content_type met ≥2 containers.")
+        st.info("Onder de geselecteerde routes is géén content_type met ≥2 containers.")
         st.stop()
 
     optim_type = st.selectbox("Kies content_type voor weergave", common)
@@ -700,36 +699,39 @@ with tab4:
     )
 
     # 3) Coördinaten voorbereiden
-    coords    = df_opt[["r_lon","r_lat"]].values.tolist()
-    coords_m  = project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)
+    coords   = df_opt[["r_lon","r_lat"]].values.tolist()
+    coords_m = project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)
     N = len(coords)
     k = len(sel_routes)
 
     # 4) Afstandsmatrix (OSRM of geodesisch)
     OSRM_URL  = st.secrets.get("osrm", {}).get("table_url", "http://router.project-osrm.org")
-    coord_str = ";".join(f"{lon},{lat}" for lon,lat in coords)
+    coord_str = ";".join(f"{lon},{lat}" for lon, lat in coords)
     try:
         resp = requests.get(f"{OSRM_URL}/table/v1/driving/{coord_str}", params={"annotations":"distance"})
         resp.raise_for_status()
         matrix = np.array(resp.json()["distances"], dtype=int)
     except Exception:
-        st.warning("⚠️ OSRM table failed, falling back to geodesic distances.")
+        st.info("⚠️ OSRM table failed, falling back to geodesic distances.")
         matrix = np.zeros((N,N), dtype=int)
         for i in range(N):
             for j in range(N):
-                if i == j: continue
-                matrix[i,j] = int(geodesic((coords[i][1],coords[i][0]), (coords[j][1],coords[j][0])).meters)
+                if i == j:
+                    continue
+                matrix[i,j] = int(
+                    geodesic((coords[i][1],coords[i][0]),
+                             (coords[j][1],coords[j][0])).meters
+                )
 
     # 5) VRP parameters: vraag=1 per stop, capaciteit ≈ evenredig
-    demands      = [1]*N
+    demands      = [1] * N
     base, extra  = divmod(N, k)
-    vehicle_caps = [base+1 if i<extra else base for i in range(k)]
+    vehicle_caps = [base + 1 if i < extra else base for i in range(k)]
 
     # 6) OR-Tools model opzetten
     manager = pywrapcp.RoutingIndexManager(N, k, 0)
     routing = pywrapcp.RoutingModel(manager)
 
-    # afstandscallback
     def dist_cb(i, j):
         ii = manager.IndexToNode(i)
         jj = manager.IndexToNode(j)
@@ -737,31 +739,31 @@ with tab4:
     transit_idx = routing.RegisterTransitCallback(dist_cb)
     routing.SetArcCostEvaluatorOfAllVehicles(transit_idx)
 
-    # capaciteitsdimensie
     def dem_cb(idx):
         return demands[manager.IndexToNode(idx)]
     demand_idx = routing.RegisterUnaryTransitCallback(dem_cb)
     routing.AddDimensionWithVehicleCapacity(demand_idx, 0, vehicle_caps, True, "Capacity")
 
-    # 7) Default zoekparameters (zonder fouten op enums)
+    # 7) Default zoekparameters
     search_params = pywrapcp.DefaultRoutingSearchParameters()
-    # optioneel in commentaar: search_params.time_limit.seconds = 120
+    # (optioneel) time-limit uitbreiden:
+    # search_params.time_limit.seconds = 120
 
     # 8) Oplossen + fallback
     solution = routing.SolveWithParameters(search_params)
     if not solution:
-        st.warning("⚠️ OR-Tools kon binnen de default time‐limit geen oplossing vinden; fallback‐clustering.")
+        st.info("⚠️ OR-Tools kon binnen de default time‐limit geen oplossing vinden; fallback‐clustering.")
+
     if solution:
         labels = np.empty(N, dtype=int)
-        for vehicle_id in range(k):
-            idx = routing.Start(vehicle_id)
+        for vid in range(k):
+            idx = routing.Start(vid)
             while not routing.IsEnd(idx):
                 node = manager.IndexToNode(idx)
-                labels[node] = vehicle_id
+                labels[node] = vid
                 idx = solution.Value(routing.NextVar(idx))
     else:
-        # fallback: farthest‐first + capacity_balance
-        seeds_idx  = farthest_point_seeds_indices(coords_m, k)
+        seeds_idx   = farthest_point_seeds_indices(coords_m, k)
         seed_coords = coords_m[seeds_idx]
         dmat = np.linalg.norm(coords_m[:,None,:] - seed_coords[None,:,:], axis=2)
         init_labels = np.argmin(dmat, axis=1)
@@ -772,10 +774,12 @@ with tab4:
 
     # 10) Aantallen per nieuwe route
     st.subheader("📊 Aantal containers per nieuwe route")
-    cnt = (df_opt.groupby("new_route")
-               .size()
-               .reset_index(name="aantal")
-               .sort_values("new_route"))
+    cnt = (
+        df_opt.groupby("new_route")
+              .size()
+              .reset_index(name="aantal")
+              .sort_values("new_route")
+    )
     st.dataframe(cnt, use_container_width=True)
 
     # 11) PyDeck visualisatie
@@ -804,14 +808,12 @@ with tab4:
             line_width_min_pixels=1, radiusMinPixels=6,
             radiusMaxPixels=10, pickable=True
         ))
-
     mid_lat = df_opt["r_lat"].mean()
     mid_lon = df_opt["r_lon"].mean()
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=pdk.ViewState(
-            latitude=mid_lat, longitude=mid_lon,
-            zoom=12, pitch=0
+            latitude=mid_lat, longitude=mid_lon, zoom=12, pitch=0
         ),
         layers=layers,
         tooltip={"html":"{tooltip}","style":{"backgroundColor":"steelblue","color":"white"}}
