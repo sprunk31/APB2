@@ -10,7 +10,55 @@ from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
+import numpy as np
 
+def haversine(lon1, lat1, lon2, lat2):
+    """Bereken afstand in meters tussen twee GPS-punten."""
+    R = 6371000  # straal aarde in meters
+    φ1, φ2 = np.radians(lat1), np.radians(lat2)
+    Δφ = np.radians(lat2 - lat1)
+    Δλ = np.radians(lon2 - lon1)
+    a = np.sin(Δφ/2)**2 + np.cos(φ1)*np.cos(φ2)*np.sin(Δλ/2)**2
+    return R * 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+
+def balance_clusters(coords, labels, k, size_min, size_max, max_iter=50):
+    """
+    Verschuif punten tussen clusters om ieder cluster binnen [size_min, size_max] te krijgen.
+    Hierbij kiest het onderbezet cluster telkens de dichtstbijzijnde punten uit overbezet cluster.
+    """
+    labels = labels.copy()
+    for _ in range(max_iter):
+        sizes = np.array([np.sum(labels == i) for i in range(k)])
+        over = np.where(sizes > size_max)[0]
+        under = np.where(sizes < size_min)[0]
+        if len(over) == 0 and len(under) == 0:
+            break
+        # herbereken centroids
+        centroids = np.zeros((k, 2))
+        for i in range(k):
+            pts = coords[labels == i]
+            centroids[i] = pts.mean(axis=0) if len(pts)>0 else coords[np.random.choice(len(coords))]
+        # verplaats punten
+        for j in under:
+            need = size_min - sizes[j]
+            if need <= 0: continue
+            for i in over:
+                extra = sizes[i] - size_max
+                if extra <= 0: continue
+                take = min(extra, need)
+                inds_i = np.where(labels == i)[0]
+                dists = np.array([
+                    haversine(coords[idx,0], coords[idx,1], centroids[j,0], centroids[j,1])
+                    for idx in inds_i
+                ])
+                to_move = inds_i[np.argsort(dists)[:take]]
+                labels[to_move] = j
+                sizes[i] -= take
+                sizes[j] += take
+                need -= take
+                if need == 0:
+                    break
+    return labels
 
 ## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
@@ -651,26 +699,69 @@ with tab4:
                 df_sel["r_lat"].notna() & df_sel["r_lon"].notna()
             ].copy()
 
-            kleuren = [
-                [255, 0, 0], [0, 100, 255], [0, 255, 0],
-                [255, 165, 0], [160, 32, 240], [0, 206, 209],
-                [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
-            ]
-
             st.markdown("### 🛣️ Genereer nieuwe routes")
             if st.button("Genereer routes"):
                 k = len(sel_routes)
-                coords = df_opt[["r_lat", "r_lon"]].values
-                kmeans = KMeans(n_clusters=k, random_state=42, init="k-means++")
-                df_opt["cluster"] = kmeans.fit_predict(coords)
+                coords = df_opt[["r_lon", "r_lat"]].values
+                n = len(coords)
 
+                # bepaal evenwichtige cluster-grootte
+                base = n // k
+                extra = n % k
+                size_min = base
+                size_max = base + (1 if extra > 0 else 0)
+
+                best_labels = None
+
+                # probeer tot 5 keer met verschillende random_state
+                for seed in range(5):
+                    km = KMeans(n_clusters=k, random_state=42 + seed, init="k-means++")
+                    init_labels = km.fit_predict(coords)
+                    labels = balance_clusters(coords, init_labels, k, size_min, size_max)
+
+                    # recompute centroids
+                    centroids = np.array([
+                        coords[labels == i].mean(axis=0) if np.sum(labels==i)>0 else coords[np.random.choice(n)]
+                        for i in range(k)
+                    ])
+
+                    # check onderlinge afstand ≥100 m
+                    ok = True
+                    for i in range(k):
+                        for j in range(i+1, k):
+                            if haversine(
+                                centroids[i,0], centroids[i,1],
+                                centroids[j,0], centroids[j,1]
+                            ) < 100:
+                                ok = False
+                                break
+                        if not ok:
+                            break
+
+                    if ok:
+                        best_labels = labels
+                        break
+
+                if best_labels is None:
+                    st.warning("Kon routes niet volledig ≥100 m uit elkaar zetten; resultaat is zo goed mogelijk.")
+                    best_labels = labels
+
+                # toewijzen en visualiseren
+                df_opt["cluster"] = best_labels
                 cluster_to_route = {i: sel_routes[i] for i in range(k)}
                 df_opt["new_route"] = df_opt["cluster"].map(cluster_to_route)
 
-                kleur_map_new = {
+                # kleurenschema
+                kleuren = [
+                    [255,   0,   0], [0, 100, 255], [0, 255,   0],
+                    [255, 165,   0], [160,  32, 240], [0, 206, 209],
+                    [255, 105, 180], [255, 255,   0], [139,  69,  19], [0, 128, 128]
+                ]
+                kleur_map = {
                     route: kleuren[i % len(kleuren)] + [200]
                     for i, route in enumerate(sel_routes)
                 }
+
                 layers = []
                 for route in sel_routes:
                     df_route = df_opt[df_opt["new_route"] == route]
@@ -683,13 +774,14 @@ with tab4:
                             f"Vulgraad: {r['fill_level']}%<br>"
                             f"Route: {r['new_route']}<br>"
                             f"Locatie: {r['address']}, {r['city']}"
-                        ), axis=1
+                        ),
+                        axis=1
                     )
                     layers.append(pdk.Layer(
                         "ScatterplotLayer",
                         data=df_route,
                         get_position='[r_lon, r_lat]',
-                        get_fill_color=kleur_map_new[route],
+                        get_fill_color=kleur_map[route],
                         stroked=True,
                         get_line_color=[0, 0, 0],
                         line_width_min_pixels=1,
@@ -700,14 +792,10 @@ with tab4:
 
                 mid_lat = df_opt["r_lat"].mean()
                 mid_lon = df_opt["r_lon"].mean()
-
                 st.pydeck_chart(pdk.Deck(
                     map_style="mapbox://styles/mapbox/streets-v12",
                     initial_view_state=pdk.ViewState(
-                        latitude=mid_lat,
-                        longitude=mid_lon,
-                        zoom=12,
-                        pitch=0
+                        latitude=mid_lat, longitude=mid_lon, zoom=12, pitch=0
                     ),
                     layers=layers,
                     tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
