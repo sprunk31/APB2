@@ -10,7 +10,7 @@ from streamlit_folium import st_folium
 from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
-from sklearn_extras.cluster import KMeansConstrained
+from sklearn_extra.cluster import KMeansConstrained
 import numpy as np
 
 ## ─── LOGIN ───────────────────────────────────────
