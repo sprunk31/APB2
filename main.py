@@ -702,7 +702,7 @@ with tab4:
         st.info("Selecteer in de sidebar minimaal 2 routes om te optimaliseren.")
         st.stop()
 
-    # ─── Data ophalen ────────────────────────────────
+    # ─── Data ophalen ───────────────────────────────────
     df_r   = load_routes_for_map()
     df_sel = df_r[df_r["route_omschrijving"].isin(sel_routes)].copy()
     counts = df_sel["content_type"].value_counts()
@@ -712,16 +712,29 @@ with tab4:
         st.stop()
 
     optim_type = st.selectbox("Kies content_type voor weergave", common)
-    df_opt = df_sel[
-        (df_sel["content_type"] == optim_type) &
-        df_sel["r_lat"].notna() &
-        df_sel["r_lon"].notna()
-    ].copy().reset_index(drop=True)
+    df_opt = (
+        df_sel[
+            (df_sel["content_type"] == optim_type) &
+            df_sel["r_lat"].notna() &
+            df_sel["r_lon"].notna()
+        ]
+        .copy()
+        .reset_index(drop=True)
+    )
 
-    coords = df_opt[["r_lon", "r_lat"]].values.tolist()
+    # voorbereiden coördinaten
+    coords  = df_opt[["r_lon", "r_lat"]].values.tolist()
+    coords_m = project_to_meters(
+        df_opt["r_lon"].values,
+        df_opt["r_lat"].values
+    )
+    N = len(coords)
+    k = len(sel_routes)
 
-    # ─── OSRM-table of fallback ───────────────────────
+    # ─── Afstandsmatrix via OSRM of fallback ─────────────
+    OSRM_URL = st.secrets.get("osrm", {}).get("table_url", "http://router.project-osrm.org")
     coord_str = ";".join(f"{lon},{lat}" for lon, lat in coords)
+
     try:
         resp = requests.get(
             f"{OSRM_URL}/table/v1/driving/{coord_str}",
@@ -731,49 +744,50 @@ with tab4:
         matrix = np.array(resp.json()["distances"], dtype=int)
     except Exception:
         st.warning("⚠️ OSRM table failed, falling back to geodesic distances.")
-        matrix = np.zeros((len(coords), len(coords)), dtype=int)
-        for i in range(len(coords)):
-            for j in range(len(coords)):
+        matrix = np.zeros((N, N), dtype=int)
+        for i in range(N):
+            for j in range(N):
+                if i == j:
+                    continue
                 matrix[i, j] = int(
                     geodesic((coords[i][1], coords[i][0]),
                              (coords[j][1], coords[j][0]))
                     .meters
                 )
 
-    # ─── OR-Tools CVRP ────────────────────────────────
-    N = len(coords)
-    k = len(sel_routes)
-
-    # vraag per stop = 1, capaciteit per voertuig = bijna-evenredig
-    demands = [1]*N
+    # ─── VRP-formulering (demands & capacities) ────────
+    demands = [1] * N
     base, extra = divmod(N, k)
-    vehicle_caps = [base+1 if i < extra else base for i in range(k)]
+    vehicle_caps = [base + 1 if i < extra else base for i in range(k)]
 
+    # ─── OR-Tools RoutingModel opzetten ────────────────
     manager = pywrapcp.RoutingIndexManager(N, k, 0)
     routing = pywrapcp.RoutingModel(manager)
 
     # afstandscallback
-    def dist_cb(i, j):
-        return int(matrix[manager.IndexToNode(i)][manager.IndexToNode(j)])
-    transit_cb = routing.RegisterTransitCallback(dist_cb)
-    routing.SetArcCostEvaluatorOfAllVehicles(transit_cb)
+    def dist_cb(from_idx, to_idx):
+        i = manager.IndexToNode(from_idx)
+        j = manager.IndexToNode(to_idx)
+        return int(matrix[i][j])
+    transit_callback_idx = routing.RegisterTransitCallback(dist_cb)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_idx)
 
-    # capaciteit
-    def demand_cb(i):
-        return demands[manager.IndexToNode(i)]
-    demand_callback = routing.RegisterUnaryTransitCallback(demand_cb)
+    # capaciteitsdimensie
+    def demand_cb(idx):
+        return demands[manager.IndexToNode(idx)]
+    demand_callback_idx = routing.RegisterUnaryTransitCallback(demand_cb)
     routing.AddDimensionWithVehicleCapacity(
-        demand_callback,
-        0,
+        demand_callback_idx,
+        0,  # slack
         vehicle_caps,
         True,
         "Capacity"
     )
 
-    # optioneel: max afstand per route, b.v. 100 km
+    # optioneel: max afstand per route (bv. 100 km)
     max_route_m = 100_000
     routing.AddDimension(
-        transit_cb,
+        transit_callback_idx,
         0,
         max_route_m,
         True,
@@ -790,76 +804,86 @@ with tab4:
     )
     search_params.time_limit.seconds = 10
 
+    # ─── Oplossen met fallback naar Tabu Search ─────────
     solution = routing.SolveWithParameters(search_params)
     if not solution:
-        st.warning("⚠️ OR-Tools gaf geen oplossing in 10 s; retry met Tabu Search en 60 s…")
-        # herconfigureer voor een tweede poging
+        st.warning("⚠️ OR-Tools gaf geen oplossing in 10 s; probeer Tabu Search met 60 s…")
         search_params.local_search_metaheuristic = (
             routing_enums_pb2.LocalSearchMetaheuristic.TABU_SEARCH
         )
-        search_params.time_limit.seconds = 60
-        # (optioneel) verander first_solution_strategy
         search_params.first_solution_strategy = (
             routing_enums_pb2.FirstSolutionStrategy.PARALLEL_CHEAPEST_INSERTION
         )
+        search_params.time_limit.seconds = 60
         solution = routing.SolveWithParameters(search_params)
 
-    if not solution:
-        st.error("❌ Nog steeds geen OR-Tools-oplossing; gebruik fallback-clustering.")
-        # fallback naar je eigen algorithme
-        labels = capacity_balance(
-            project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values),
-            np.argmin(np.linalg.norm(
-                project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)[:, None, :]
-                - project_to_meters(df_opt["r_lon"].values, df_opt["r_lat"].values)[None, :, :],
-                axis=2
-            ), axis=1).copy(),
-            caps
-        )
-    else:
-        # 5) Vertaal de OR-Tools uitkomst naar labels
-        assignment = [-1] * N
-        for vehicle in range(k):
-            idx = routing.Start(vehicle)
+    # ─── Labels toewijzen (OR-Tools of fallback) ────────
+    if solution:
+        labels = np.empty(N, dtype=int)
+        for vehicle_id in range(k):
+            idx = routing.Start(vehicle_id)
             while not routing.IsEnd(idx):
                 node = manager.IndexToNode(idx)
-                assignment[node] = vehicle
+                labels[node] = vehicle_id
                 idx = solution.Value(routing.NextVar(idx))
-        labels = np.array(assignment, dtype=int)
+    else:
+        st.error("❌ Nog steeds geen OR-Tools-oplossing; gebruik fallback-clustering.")
+        # fallback: farthest-first seeds + capacity_balance
+        seeds_idx = farthest_point_seeds_indices(coords_m, k)
+        seed_coords = coords_m[seeds_idx]
+        dmat = np.linalg.norm(
+            coords_m[:, None, :] - seed_coords[None, :, :],
+            axis=2
+        )
+        init_labels = np.argmin(dmat, axis=1)
+        labels = capacity_balance(coords_m, init_labels.copy(), vehicle_caps)
 
-    df_opt["new_route"] = [sel_routes[assignment[i]] for i in range(N)]
+    # ─── Schrijf resultaat terug en visualiseer ─────────
+    df_opt["new_route"] = [sel_routes[l] for l in labels]
 
-    # ─── Resultaten tonen ─────────────────────────────
     st.subheader("📊 Aantal containers per nieuwe route")
-    cnt = (
+    count_df = (
         df_opt.groupby("new_route")
               .size()
               .reset_index(name="aantal")
+              .sort_values("new_route")
     )
-    st.dataframe(cnt, use_container_width=True)
+    st.dataframe(count_df, use_container_width=True)
 
-    # PyDeck-map
-    kleuren = [[255,0,0],[0,100,255],[0,255,0],[255,165,0],[160,32,240],
-               [0,206,209],[255,105,180],[255,255,0],[139,69,19],[0,128,128]]
-    kleur_map = {r: kleuren[i%len(kleuren)]+[200] for i,r in enumerate(sel_routes)}
+    kleuren = [
+        [255, 0, 0], [0, 100, 255], [0, 255, 0],
+        [255, 165, 0], [160, 32, 240], [0, 206, 209],
+        [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+    ]
+    kleur_map = {
+        r: kleuren[i % len(kleuren)] + [200]
+        for i, r in enumerate(sel_routes)
+    }
 
     layers = []
     for route in sel_routes:
         part = df_opt[df_opt["new_route"] == route].copy()
-        part["tooltip"] = part.apply(lambda r: (
-            f"<b>🧺 {r['container_name']}</b><br>"
-            f"Type: {r['content_type']}<br>"
-            f"Vulgraad: {r['fill_level']}%<br>"
-            f"Route: {r['new_route']}<br>"
-            f"Locatie: {r['address']}, {r['city']}"
-        ), axis=1)
+        part["tooltip"] = part.apply(
+            lambda r: (
+                f"<b>🧺 {r['container_name']}</b><br>"
+                f"Type: {r['content_type']}<br>"
+                f"Vulgraad: {r['fill_level']}%<br>"
+                f"Route: {r['new_route']}<br>"
+                f"Locatie: {r['address']}, {r['city']}"
+            ),
+            axis=1
+        )
         layers.append(pdk.Layer(
-            "ScatterplotLayer", data=part,
+            "ScatterplotLayer",
+            data=part,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
-            stroked=True, get_line_color=[0,0,0],
-            line_width_min_pixels=1, radiusMinPixels=6,
-            radiusMaxPixels=10, pickable=True
+            stroked=True,
+            get_line_color=[0, 0, 0],
+            line_width_min_pixels=1,
+            radiusMinPixels=6,
+            radiusMaxPixels=10,
+            pickable=True
         ))
 
     mid_lat, mid_lon = df_opt["r_lat"].mean(), df_opt["r_lon"].mean()
@@ -869,5 +893,5 @@ with tab4:
             latitude=mid_lat, longitude=mid_lon, zoom=12, pitch=0
         ),
         layers=layers,
-        tooltip={"html":"{tooltip}","style":{"backgroundColor":"steelblue","color":"white"}}
+        tooltip={"html": "{tooltip}", "style": {"backgroundColor": "steelblue", "color": "white"}}
     ))
