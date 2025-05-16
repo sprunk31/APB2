@@ -707,7 +707,7 @@ with tab4:
     common_types = counts[counts >= 2].index.tolist()
     if not common_types:
         st.warning("Onder de geselecteerde routes is géén content_type met ≥2 containers.")
-        return
+        st.stop()
 
     optim_type = st.selectbox("Kies content_type voor weergave", common_types)
     df_opt = df_sel[
@@ -717,21 +717,21 @@ with tab4:
 
     st.markdown("### 🛣️ Genereer nieuwe routes")
     if not st.button("Genereer routes"):
-        return
+        st.stop()
 
-    # Configuratie
+    # ── Configuratie ───────────────────────────────────────
     k = len(sel_routes)
     distance_threshold = 200         # in meters
-    n_seeds = 20                     # aantal random_state pogingen
+    n_seeds = 20                     # aantal random_state-pogingen
     max_iter_balance = 100          # iteraties voor balance_clusters
 
-    # Projectie naar meters
+    # 1) Projecteer naar meters
     lons = df_opt["r_lon"].values
     lats = df_opt["r_lat"].values
     coords_m = project_to_meters(lons, lats)
     n = len(coords_m)
 
-    # Bepaal evenwichtige cluster-grootte
+    # 2) Bepaal min/max grootte per cluster
     base = n // k
     extra = n % k
     size_min = base
@@ -739,7 +739,7 @@ with tab4:
 
     best_labels = None
 
-    # Probeer verschillende seeds
+    # 3) Probeer verschillende seeds
     for seed in range(n_seeds):
         km = KMeans(n_clusters=k, random_state=42 + seed, init="k-means++")
         init_labels = km.fit_predict(coords_m)
@@ -748,7 +748,7 @@ with tab4:
             max_iter=max_iter_balance
         )
 
-        # Centroids in meters
+        # bereken centroids in meters
         cents = np.array([
             coords_m[labels == i].mean(axis=0)
             if np.any(labels == i)
@@ -756,10 +756,10 @@ with tab4:
             for i in range(k)
         ])
 
-        # 1) Check onderlinge centroid-afstand
+        # 3a) Check onderlinge centroid-afstand
         ok_centroids = True
         for i in range(k):
-            for j in range(i+1, k):
+            for j in range(i + 1, k):
                 if np.linalg.norm(cents[i] - cents[j]) < distance_threshold:
                     ok_centroids = False
                     break
@@ -768,19 +768,15 @@ with tab4:
         if not ok_centroids:
             continue
 
-        # 2) Check minimale puntafstand tussen clusters
+        # 3b) Check minimale puntafstand tussen clusters
         ok_points = True
         for i in range(k):
             idx_i = np.where(labels == i)[0]
-            for j in range(i+1, k):
+            for j in range(i + 1, k):
                 idx_j = np.where(labels == j)[0]
-                # alle paren zou O(n²) zijn; we stoppen zodra we een te kleine vinden
+                # zoeken naar een te korte afstand
                 for ii in idx_i:
-                    dists = np.linalg.norm(
-                        coords_m[ii] - coords_m[idx_j],
-                        axis=1
-                    )
-                    if dists.min() < distance_threshold:
+                    if np.min(np.linalg.norm(coords_m[ii] - coords_m[idx_j], axis=1)) < distance_threshold:
                         ok_points = False
                         break
                 if not ok_points:
@@ -799,12 +795,12 @@ with tab4:
         )
         best_labels = labels  # laatste poging
 
-    # Toewijzen
+    # 4) Toewijzen aan df_opt
     df_opt["cluster"] = best_labels
     cluster_to_route = {i: sel_routes[i] for i in range(k)}
     df_opt["new_route"] = df_opt["cluster"].map(cluster_to_route)
 
-    # 📊 Aantal per nieuwe route
+    # 5) 📊 Aantal per nieuwe route
     st.subheader("📊 Aantal containers per nieuwe route")
     count_df = (
         df_opt
@@ -815,7 +811,7 @@ with tab4:
     )
     st.dataframe(count_df, use_container_width=True)
 
-    # Visualisatie
+    # 6) Visualisatie
     kleuren = [
         [255,   0,   0], [0, 100, 255], [0, 255,   0],
         [255, 165,   0], [160,  32, 240], [0, 206, 209],
