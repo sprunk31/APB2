@@ -459,13 +459,11 @@ with tab2:
             JOIN apb_containers c ON r.omschrijving = c.container_name
             WHERE c.container_location IS NOT NULL
         """)
-        # splits & numeric
         df[["r_lat", "r_lon"]] = (
             df["container_location"]
               .str.split(",", expand=True)
               .astype(float)
         )
-        # veilige conversie fill_level
         df["fill_level"] = pd.to_numeric(df["fill_level"], errors="coerce")
         return df.dropna(subset=["r_lat", "r_lon"])
 
@@ -491,7 +489,7 @@ with tab2:
     sel_names  = st.session_state.extra_meegegeven_tijdelijk
     df_hand    = df_containers[df_containers["container_name"].isin(sel_names)].copy()
 
-    # Functie om per handselectie dichtsbijzijnde route te vinden
+    # Bepaal voor handselectie de dichtstbijzijnde route
     def find_nearest_route(r):
         if pd.isna(r["lat"]) or pd.isna(r["lon"]):
             return None
@@ -511,7 +509,7 @@ with tab2:
     if not df_hand.empty:
         df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
 
-    # Kleuren voor routes
+    # Kleuren per route
     kleuren = [
         [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
         [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 9], [0, 128, 128]
@@ -529,7 +527,7 @@ with tab2:
         vals = [int(l) for l in levels if pd.notnull(l)]
         return " / ".join(f"{v}%" for v in vals) if vals else ""
 
-    # ─── 1) Groeperen van de route-punten ─────────────────
+    # ─── 1) Groeperen van route-punten ─────────────────
     grouped_routes = (
         df_routes
         .groupby(
@@ -553,7 +551,7 @@ with tab2:
         axis=1
     )
 
-    # ─── 2) Groeperen van handmatig geselecteerde punten ─────────────────
+    # ─── 2) Groeperen van handmatig geselecteerde punten ────
     if not df_hand.empty:
         grouped_hand = (
             df_hand
@@ -563,8 +561,12 @@ with tab2:
                 as_index=False
             )
             .agg({
-                "container_name":         concat_names,
-                "fill_level":             concat_levels
+                "container_name": concat_names,
+                "fill_level":     concat_levels,
+                # haal dubbele routes eruit met dict.fromkeys()
+                "dichtstbijzijnde_route": lambda routes: " / ".join(
+                    dict.fromkeys(r for r in routes if r)
+                )
             })
         )
         grouped_hand["tooltip_label"] = grouped_hand.apply(
@@ -578,9 +580,9 @@ with tab2:
             axis=1
         )
 
-    # ─── 3) PyDeck-lagen opbouwen ─────────────────
+    # ─── 3) Definitie van PyDeck-lagen ─────────────────────
     layers = []
-    # Route-lagen
+    # per route
     for route in sel_routes:
         df_r = grouped_routes[grouped_routes["route_omschrijving"] == route]
         layers.append(pdk.Layer(
@@ -595,7 +597,7 @@ with tab2:
             radiusMaxPixels=6,
             pickable=True
         ))
-    # Handselectie-lagen
+    # handmatige selectie
     if not df_hand.empty:
         layers.append(pdk.Layer(
             "ScatterplotLayer",
@@ -620,7 +622,7 @@ with tab2:
     else:
         midpoint = [52.0, 4.3]
 
-    # PyDeck-chart renderen
+    # Kaart renderen
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=pdk.ViewState(
@@ -631,7 +633,7 @@ with tab2:
         tooltip=tooltip
     ))
 
-    # Tabel met handselectie (onder de kaart)
+    # Onder de kaart: handmatige selectie
     if not df_hand.empty:
         st.markdown("### 📋 Handmatig geselecteerde containers")
         st.dataframe(
