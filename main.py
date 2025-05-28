@@ -462,8 +462,7 @@ with tab2:
         df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True)
         df["r_lat"] = pd.to_numeric(df["r_lat"], errors="coerce")
         df["r_lon"] = pd.to_numeric(df["r_lon"], errors="coerce")
-        df = df.dropna(subset=["r_lat", "r_lon"])
-        return df
+        return df.dropna(subset=["r_lat", "r_lon"])
 
     @st.cache_data(ttl=300)
     def load_all_containers():
@@ -474,17 +473,19 @@ with tab2:
         df[["lat", "lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
         return df
 
+    # Data laden
     df_routes = load_routes_for_map()
     df_containers = load_all_containers()
     sel_routes = st.session_state.geselecteerde_routes
     sel_names = st.session_state.extra_meegegeven_tijdelijk
     df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
 
+    # Bepaal voor handselectie de dichtstbijzijnde route (blijft onveranderd)
     def find_nearest_route(r):
         if pd.isna(r["lat"]) or pd.isna(r["lon"]):
             return None
         radius = 0.15
-        while True:
+        while radius <= 5:
             matches = [
                 rp["route_omschrijving"] for _, rp in df_routes.iterrows()
                 if rp["content_type"] == r["content_type"]
@@ -493,20 +494,19 @@ with tab2:
             if matches:
                 return Counter(matches).most_common(1)[0][0]
             radius += 0.1
-            if radius > 5:
-                return None
+        return None
 
     if not df_hand.empty:
         df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
-    else:
-        df_hand["dichtstbijzijnde_route"] = None
 
+    # Kleurenkaart voor routes
     kleuren = [
         [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
-        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 9], [0, 128, 128]
     ]
     kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
 
+    # ─── 1) Routes groeperen op exacte locatie ─────────────────
     grouped_routes = (
         df_routes
         .groupby(
@@ -515,11 +515,9 @@ with tab2:
         )
         .agg({
             "container_name": lambda names: " / ".join(names),
-            "fill_level": lambda levels: " / ".join(f"{int(l)}%" for l in levels)
+            "fill_level":        lambda levels:  " / ".join(f"{int(l)}%" for l in levels)
         })
     )
-
-    # Tooltip-label opbouwen voor gegroepeerde routes
     grouped_routes["tooltip_label"] = grouped_routes.apply(
         lambda row: f"""
             <b>🧺 {row['container_name']}</b><br>
@@ -530,7 +528,7 @@ with tab2:
         """, axis=1
     )
 
-    # 2) Handmatig geselecteerde containers groeperen per exacte locatie
+    # ─── 2) Handmatig geselecteerde containers groeperen ─────────────────
     if not df_hand.empty:
         grouped_hand = (
             df_hand
@@ -540,8 +538,8 @@ with tab2:
                 as_index=False
             )
             .agg({
-                "container_name": lambda names: " / ".join(names),
-                "fill_level": lambda levels: " / ".join(f"{int(l)}%" for l in levels),
+                "container_name":         lambda names: " / ".join(names),
+                "fill_level":             lambda levels:  " / ".join(f"{int(l)}%" for l in levels),
                 "dichtstbijzijnde_route": lambda routes: " / ".join(filter(None, routes))
             })
         )
@@ -555,13 +553,14 @@ with tab2:
             """, axis=1
         )
 
-    # 3) Nieuwe ScatterplotLayer voor gegroepeerde routes
+    # ─── 3) Laagdefinities voor PyDeck ─────────────────
     layers = []
+    # Route-lagen
     for route in sel_routes:
-        df_r_grp = grouped_routes[grouped_routes["route_omschrijving"] == route]
+        df_r = grouped_routes[grouped_routes["route_omschrijving"] == route]
         layers.append(pdk.Layer(
             "ScatterplotLayer",
-            data=df_r_grp,
+            data=df_r,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
             stroked=True,
@@ -571,8 +570,7 @@ with tab2:
             radiusMaxPixels=6,
             pickable=True
         ))
-
-    # 4) Nieuwe ScatterplotLayer voor gegroepeerde handselectie
+    # Handmatige selectie
     if not df_hand.empty:
         layers.append(pdk.Layer(
             "ScatterplotLayer",
@@ -585,16 +583,19 @@ with tab2:
             pickable=True
         ))
 
+    # Tooltip-stijl
     tooltip = {
         "html": "{tooltip_label}",
         "style": {"backgroundColor": "steelblue", "color": "white"}
     }
 
+    # Midpoint berekenen
     if not df_containers.empty:
         midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
     else:
         midpoint = [52.0, 4.3]
 
+    # Kaart renderen
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=pdk.ViewState(
@@ -605,11 +606,12 @@ with tab2:
         tooltip=tooltip
     ))
 
+    # Tabel onder de kaart
     if not df_hand.empty:
         st.markdown("### 📋 Handmatig geselecteerde containers")
         st.dataframe(df_hand[[
-            "container_name", "address", "city", "location_code", "content_type",
-            "fill_level", "dichtstbijzijnde_route"
+            "container_name", "address", "city", "location_code",
+            "content_type", "fill_level", "dichtstbijzijnde_route"
         ]], use_container_width=True)
     else:
         st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
