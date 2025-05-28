@@ -507,44 +507,76 @@ with tab2:
     ]
     kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
 
-    layers = []
-    for route in sel_routes:
-        df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
-        df_r["tooltip_label"] = df_r.apply(
+    grouped_routes = (
+        df_routes
+        .groupby(
+            ["r_lat", "r_lon", "content_type", "route_omschrijving", "address", "city"],
+            as_index=False
+        )
+        .agg({
+            "container_name": lambda names: " / ".join(names),
+            "fill_level": lambda levels: " / ".join(f"{int(l)}%" for l in levels)
+        })
+    )
+
+    # Tooltip-label opbouwen voor gegroepeerde routes
+    grouped_routes["tooltip_label"] = grouped_routes.apply(
+        lambda row: f"""
+            <b>🧺 {row['container_name']}</b><br>
+            Type: {row['content_type']}<br>
+            Vulgraad: {row['fill_level']}<br>
+            Route: {row['route_omschrijving'] or "—"}<br>
+            Locatie: {row['address']}, {row['city']}
+        """, axis=1
+    )
+
+    # 2) Handmatig geselecteerde containers groeperen per exacte locatie
+    if not df_hand.empty:
+        grouped_hand = (
+            df_hand
+            .dropna(subset=["lat", "lon"])
+            .groupby(
+                ["lat", "lon", "content_type", "address", "city"],
+                as_index=False
+            )
+            .agg({
+                "container_name": lambda names: " / ".join(names),
+                "fill_level": lambda levels: " / ".join(f"{int(l)}%" for l in levels),
+                "dichtstbijzijnde_route": lambda routes: " / ".join(filter(None, routes))
+            })
+        )
+        grouped_hand["tooltip_label"] = grouped_hand.apply(
             lambda row: f"""
-                <b>🧺 {row['container_name']}</b><br>
+                <b>🖤 {row['container_name']}</b><br>
                 Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['route_omschrijving'] or "—"}<br>
+                Vulgraad: {row['fill_level']}<br>
+                Route: {row['dichtstbijzijnde_route'] or "—"}<br>
                 Locatie: {row['address']}, {row['city']}
             """, axis=1
         )
+
+    # 3) Nieuwe ScatterplotLayer voor gegroepeerde routes
+    layers = []
+    for route in sel_routes:
+        df_r_grp = grouped_routes[grouped_routes["route_omschrijving"] == route]
         layers.append(pdk.Layer(
             "ScatterplotLayer",
-            data=df_r,
+            data=df_r_grp,
             get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
             stroked=True,
-            get_line_color=[0, 0, 0],            # zwarte outline
-            line_width_min_pixels=2,             # dun lijntje
+            get_line_color=[0, 0, 0],
+            line_width_min_pixels=2,
             radiusMinPixels=4,
             radiusMaxPixels=6,
             pickable=True
         ))
 
+    # 4) Nieuwe ScatterplotLayer voor gegroepeerde handselectie
     if not df_hand.empty:
-        df_hand["tooltip_label"] = df_hand.apply(
-            lambda row: f"""
-                <b>🖤 {row['container_name']}</b><br>
-                Type: {row['content_type']}<br>
-                Vulgraad: {row['fill_level']}%<br>
-                Route: {row['dichtstbijzijnde_route'] or "—"}<br>
-                Locatie: {row['address']}, {row['city']}
-            """, axis=1
-        )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
-            data=df_hand.dropna(subset=["lat", "lon"]),
+            data=grouped_hand,
             get_position='[lon, lat]',
             get_fill_color=[0, 0, 0, 220],
             stroked=True,
