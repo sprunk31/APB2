@@ -564,8 +564,7 @@ with tab2:
             )
             .agg({
                 "container_name":         concat_names,
-                "fill_level":             concat_levels,
-                "dichtstbijzijnde_route": lambda routes: " / ".join(filter(None, routes))
+                "fill_level":             concat_levels
             })
         )
         grouped_hand["tooltip_label"] = grouped_hand.apply(
