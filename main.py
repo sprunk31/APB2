@@ -292,69 +292,11 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 
-def log_extra_containers(rows_df: pd.DataFrame, gebruiker: str) -> int:
-    """
-    Zet extra_meegegeven = TRUE en logt nieuwe wijzigingen in apb_logboek_afvalcontainers.
-    rows_df moet de kolommen bevatten: container_name, address, city, location_code,
-    content_type, fill_level.
-    Retourneert aantal nieuwe logs.
-    """
-    # haal bestaande logs op
-    try:
-        df_log = run_query(
-            "SELECT container_name, datum FROM apb_logboek_afvalcontainers"
-        )
-        df_log["datum"] = pd.to_datetime(df_log["datum"], errors="coerce")
-    except Exception:
-        df_log = pd.DataFrame(columns=["container_name", "datum"])
-
-    vandaag = datetime.now().date()
-    count = 0
-    for _, row in rows_df.iterrows():
-        naam = row["container_name"].strip()
-        # skip als vandaag al gelogd
-        if ((df_log["container_name"] == naam) &
-            (df_log["datum"].dt.date == vandaag)).any():
-            continue
-
-        # update container
-        execute_query(
-            "UPDATE apb_containers SET extra_meegegeven = TRUE WHERE TRIM(container_name) = :naam",
-            {"naam": naam}
-        )
-        # insert log
-        execute_query(
-            """
-            INSERT INTO apb_logboek_afvalcontainers
-              (container_name, address, city, location_code,
-               content_type, fill_level, datum, gebruiker)
-            VALUES (:a, :b, :c, :d, :e, :f, :g, :h)
-            """, {
-            "a": naam,
-            "b": row["address"],
-            "c": row["city"],
-            "d": row["location_code"],
-            "e": row["content_type"],
-            "f": row["fill_level"],
-            "g": datetime.now(),
-            "h": gebruiker
-        })
-        count += 1
-
-    return count
-
-
-# ─── TAB 1: Lijst en logging ─────────────────────────────────
-with st.sidebar:
-    df_sidebar = run_query("SELECT * FROM apb_containers")
-
-tab1, tab2 = st.tabs(["📋 Lijst", "🗺️ Kaart"])
-
+# ─── TAB 1: DASHBOARD ────────────────────────────
 with tab1:
-    # basis dataframe
     df = df_sidebar.copy()
 
-    if st.session_state.get("refresh_needed", False):
+    if st.session_state.refresh_needed:
         df = run_query("""
             SELECT *
             FROM apb_containers
@@ -367,18 +309,16 @@ with tab1:
 
     # KPI's
     try:
-        df_logboek = run_query(
-            "SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum >= current_date"
-        )
+        df_logboek = run_query("SELECT gebruiker FROM apb_logboek_afvalcontainers WHERE datum >= current_date")
         counts = df_logboek["gebruiker"].value_counts().to_dict()
         delft_count = counts.get("Delft", 0)
         denhaag_count = counts.get("Den Haag", 0)
-    except Exception:
+    except:
         delft_count = denhaag_count = 0
 
     k1, k2, k3 = st.columns(3)
-    k1.metric("📦 Totaal containers", len(df))
-    k2.metric("📊 Vulgraad ≥ 80%", (df["fill_level"] >= 80).sum())
+    k1.metric("\U0001F4E6 Totaal containers", len(df))
+    k2.metric("\U0001F4CA Vulgraad ≥ 80%", (df["fill_level"] >= 80).sum())
     k3.metric("🧝 Extra meegegeven (Delft / Den Haag)", f"{delft_count} / {denhaag_count}")
 
     # Zoekfilters
@@ -390,55 +330,58 @@ with tab1:
         with col2:
             zoek_straat = st.text_input("📍 Zoek op address").strip().lower()
 
+    # Start met alle containers die nog niet extra zijn meegegeven
     bewerkbaar = df[~df["extra_meegegeven"]].copy()
+
+    # Zonder zoekopdracht -> filter op oproute en content_type uit sidebar
     if not zoek_naam and not zoek_straat:
         bewerkbaar = bewerkbaar[bewerkbaar["oproute"] == "Nee"]
-        bewerkbaar = bewerkbaar[bewerkbaar["content_type"].isin(
-            st.session_state.selected_types
-        )]
-    if zoek_naam:
-        bewerkbaar = bewerkbaar[
-            bewerkbaar["container_name"].str.lower().str.contains(zoek_naam)
-        ]
-    if zoek_straat:
-        bewerkbaar = bewerkbaar[
-            bewerkbaar["address"].str.lower().str.contains(zoek_straat)
-        ]
+        bewerkbaar = bewerkbaar[bewerkbaar["content_type"].isin(st.session_state.selected_types)]
 
-    bewerkbaar = bewerkbaar.sort_values(
-        ["content_type", "gemiddeldevulgraad"], ascending=[True, False]
-    )
+    # Met zoekopdracht -> zoek door alles, ook op route
+    if zoek_naam:
+        bewerkbaar = bewerkbaar[bewerkbaar["container_name"].str.lower().str.contains(zoek_naam)]
+    if zoek_straat:
+        bewerkbaar = bewerkbaar[bewerkbaar["address"].str.lower().str.contains(zoek_straat)]
+
+    # Sorteer altijd op content_type > gemiddeldevulgraad
+    bewerkbaar = bewerkbaar.sort_values(["content_type", "gemiddeldevulgraad"], ascending=[True, False])
+
     zichtbaar = [
-        "container_name", "address", "city", "location_code",
-        "content_type", "fill_level", "combinatietelling",
-        "gemiddeldevulgraad", "oproute", "extra_meegegeven"
+        "container_name", "address", "city", "location_code", "content_type",
+        "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
     ]
 
     # Paginering
+    if "page_bewerkbaar" not in st.session_state:
+        st.session_state.page_bewerkbaar = 0
+
     containers_per_page = 25
     total_rows = len(bewerkbaar)
     total_pages = max(1, (total_rows - 1) // containers_per_page + 1)
-    page_idx = st.session_state.get("page_bewerkbaar", 0)
-    if page_idx >= total_pages:
-        page_idx = total_pages - 1
-        st.session_state.page_bewerkbaar = page_idx
+
+    if st.session_state.page_bewerkbaar >= total_pages:
+        st.session_state.page_bewerkbaar = total_pages - 1
 
     col1, col2, col3 = st.columns([1, 2, 8])
     with col1:
-        if st.button("⬅️", key="prev_page") and page_idx > 0:
-            page_idx -= 1
-            st.session_state.page_bewerkbaar = page_idx
+        if st.button("⬅️"):
+            if st.session_state.page_bewerkbaar > 0:
+                st.session_state.page_bewerkbaar -= 1
     with col2:
-        if st.button("➡️", key="next_page") and page_idx < total_pages - 1:
-            page_idx += 1
-            st.session_state.page_bewerkbaar = page_idx
+        if st.button("➡️"):
+            if st.session_state.page_bewerkbaar < total_pages - 1:
+                st.session_state.page_bewerkbaar += 1
     with col3:
-        st.markdown(f"**Pagina {page_idx+1} van {total_pages}**")
+        st.markdown(f"**Pagina {st.session_state.page_bewerkbaar + 1} van {total_pages}**")
 
-    start = page_idx * containers_per_page
-    paged = bewerkbaar.iloc[start:start + containers_per_page]
+    start_idx = st.session_state.page_bewerkbaar * containers_per_page
+    end_idx = start_idx + containers_per_page
+    paged = bewerkbaar.iloc[start_idx:end_idx]
 
     # AgGrid
+    from st_aggrid import GridOptionsBuilder, AgGrid, GridUpdateMode
+
     gb = GridOptionsBuilder.from_dataframe(paged[zichtbaar])
     gb.configure_default_column(filter=True)
     gb.configure_column("extra_meegegeven", editable=True)
@@ -449,17 +392,47 @@ with tab1:
         height=500
     )
 
-    updated = pd.DataFrame(grid["data"])
+    updated = grid["data"].copy()
     updated["extra_meegegeven"] = updated["extra_meegegeven"].astype(bool)
-    st.session_state.extra_meegegeven_tijdelijk = (
-        updated[updated["extra_meegegeven"]]["container_name"].tolist()
-    )
+    st.session_state.extra_meegegeven_tijdelijk = updated[updated["extra_meegegeven"]]["container_name"].tolist()
 
-    # Knop voor logging
-    if st.button("✅ Wijzigingen toepassen en loggen", key="log_list"):
+    # Wijzigingen toepassen en loggen
+    if st.button("✅ Wijzigingen toepassen en loggen"):
         gewijzigde = updated[updated["extra_meegegeven"]]
         if not gewijzigde.empty:
-            count = log_extra_containers(gewijzigde, st.session_state.gebruiker)
+            try:
+                df_log = run_query("SELECT container_name, datum FROM apb_logboek_afvalcontainers")
+                df_log["datum"] = pd.to_datetime(df_log["datum"], errors="coerce")
+            except:
+                df_log = pd.DataFrame(columns=["container_name", "datum"])
+
+            vandaag = datetime.now().date()
+            count = 0
+            for _, row in gewijzigde.iterrows():
+                if ((df_log["container_name"] == row["container_name"]) &
+                    (df_log["datum"].dt.date == vandaag)).any():
+                    continue
+                nm = row["container_name"].strip()
+                execute_query(
+                    "UPDATE apb_containers SET extra_meegegeven = TRUE WHERE TRIM(container_name) = :naam",
+                    {"naam": nm}
+                )
+                execute_query("""
+                    INSERT INTO apb_logboek_afvalcontainers
+                    (container_name, address, city, location_code, content_type, fill_level, datum, gebruiker)
+                    VALUES (:a, :b, :c, :d, :e, :f, :g, :h)
+                """, {
+                    "a": row["container_name"],
+                    "b": row["address"],
+                    "c": row["city"],
+                    "d": row["location_code"],
+                    "e": row["content_type"],
+                    "f": row["fill_level"],
+                    "g": datetime.now(),
+                    "h": st.session_state.gebruiker
+                })
+                count += 1
+
             if count:
                 st.success(f"✔️ {count} containers gelogd en bijgewerkt.")
                 st.session_state.refresh_needed = True
@@ -467,117 +440,116 @@ with tab1:
             else:
                 st.warning("⚠️ Geen nieuwe logs toegevoegd.")
 
-    # Reeds gemarkeerde
     st.subheader("🔒 Reeds gemarkeerde containers")
     reeds = df[df["extra_meegegeven"]]
     st.dataframe(reeds[zichtbaar], use_container_width=True)
 
-# ─── TAB 2: Kaart ─────────────────────────────────
+
+
+# ─── TAB 2: KAART ─────────────────────────────────
 with tab2:
     st.subheader("🗺️ Containerkaart")
 
     @st.cache_data(ttl=300)
     def load_routes_for_map():
-        dfr = run_query("""
+        df = run_query("""
             SELECT r.route_omschrijving, r.omschrijving AS container_name,
-                   c.container_location, c.content_type, c.fill_level,
-                   c.address, c.city
+                   c.container_location, c.content_type, c.fill_level, c.address, c.city
             FROM apb_routes r
             JOIN apb_containers c ON r.omschrijving = c.container_name
             WHERE c.container_location IS NOT NULL
         """)
-        dfp = dfr["container_location"].str.split(",", expand=True)
-        dfr[["r_lat", "r_lon"]] = dfp.astype(float)
-        return dfr.dropna(subset=["r_lat", "r_lon"])
+        df[["r_lat", "r_lon"]] = df["container_location"].str.split(",", expand=True)
+        df["r_lat"] = pd.to_numeric(df["r_lat"], errors="coerce")
+        df["r_lon"] = pd.to_numeric(df["r_lon"], errors="coerce")
+        df = df.dropna(subset=["r_lat", "r_lon"])
+        return df
 
     @st.cache_data(ttl=300)
     def load_all_containers():
-        dfc = run_query("""
-            SELECT container_name, container_location, location_code,
-                   content_type, fill_level, address, city
+        df = run_query("""
+            SELECT container_name, container_location, location_code, content_type, fill_level, address, city
             FROM apb_containers
         """)
-        coords = dfc["container_location"].str.split(",", expand=True)
-        dfc[["lat", "lon"]] = coords.astype(float)
-        return dfc
+        df[["lat", "lon"]] = df["container_location"].str.split(",", expand=True).astype(float)
+        return df
 
     df_routes = load_routes_for_map()
     df_containers = load_all_containers()
-    sel_routes = st.session_state.get("geselecteerde_routes", [])
-    sel_names = st.session_state.get("extra_meegegeven_tijdelijk", [])
+    sel_routes = st.session_state.geselecteerde_routes
+    sel_names = st.session_state.extra_meegegeven_tijdelijk
     df_hand = df_containers[df_containers["container_name"].isin(sel_names)].copy()
 
-    # vind dichtsbijzijnde route
     def find_nearest_route(r):
         if pd.isna(r["lat"]) or pd.isna(r["lon"]):
             return None
         radius = 0.15
-        while radius <= 5:
+        while True:
             matches = [
-                rp["route_omschrijving"]
-                for _, rp in df_routes.iterrows()
-                if rp["content_type"] == r["content_type"] and
-                   geodesic((r["lat"], r["lon"]), (rp["r_lat"], rp["r_lon"]))
-                   .km <= radius
+                rp["route_omschrijving"] for _, rp in df_routes.iterrows()
+                if rp["content_type"] == r["content_type"]
+                and geodesic((r["lat"], r["lon"]), (rp["r_lat"], rp["r_lon"])).km <= radius
             ]
             if matches:
                 return Counter(matches).most_common(1)[0][0]
             radius += 0.1
-        return None
+            if radius > 5:
+                return None
 
     if not df_hand.empty:
-        df_hand["dichtstbijzijnde_route"] = df_hand.apply(
-            find_nearest_route, axis=1
-        )
+        df_hand["dichtstbijzijnde_route"] = df_hand.apply(find_nearest_route, axis=1)
     else:
         df_hand["dichtstbijzijnde_route"] = None
 
-    # Layers
-    kleuren = [[255,0,0],[0,100,255],[0,255,0],[255,165,0],
-               [160,32,240],[0,206,209],[255,105,180],[255,255,0],
-               [139,69,19],[0,128,128]]
-    kleur_map = {route: kleuren[i % len(kleuren)] + [175]
-                 for i, route in enumerate(sel_routes)}
-    layers = []
+    kleuren = [
+        [255, 0, 0], [0, 100, 255], [0, 255, 0], [255, 165, 0], [160, 32, 240],
+        [0, 206, 209], [255, 105, 180], [255, 255, 0], [139, 69, 19], [0, 128, 128]
+    ]
+    kleur_map = {route: kleuren[i % len(kleuren)] + [175] for i, route in enumerate(sel_routes)}
 
+    layers = []
     for route in sel_routes:
-        df_r = df_routes[df_routes["route_omschrijving"] == route]
+        df_r = df_routes[df_routes["route_omschrijving"] == route].copy()
         df_r["tooltip_label"] = df_r.apply(
-            lambda r: f"""
-                <b>🧺 {r['container_name']}</b><br>
-                Type: {r['content_type']}<br>
-                Vulgraad: {r['fill_level']}%<br>
-                Route: {r['route_omschrijving']}<br>
-                Locatie: {r['address']}, {r['city']}
+            lambda row: f"""
+                <b>🧺 {row['container_name']}</b><br>
+                Type: {row['content_type']}<br>
+                Vulgraad: {row['fill_level']}%<br>
+                Route: {row['route_omschrijving'] or "—"}<br>
+                Locatie: {row['address']}, {row['city']}
             """, axis=1
         )
         layers.append(pdk.Layer(
-            "ScatterplotLayer", data=df_r,
-            get_position='[r_lon,r_lat]',
+            "ScatterplotLayer",
+            data=df_r,
+            get_position='[r_lon, r_lat]',
             get_fill_color=kleur_map[route],
-            stroked=True, get_line_color=[0,0,0],
-            line_width_min_pixels=2,
-            radiusMinPixels=4, radiusMaxPixels=6,
+            stroked=True,
+            get_line_color=[0, 0, 0],            # zwarte outline
+            line_width_min_pixels=2,             # dun lijntje
+            radiusMinPixels=4,
+            radiusMaxPixels=6,
             pickable=True
         ))
 
     if not df_hand.empty:
         df_hand["tooltip_label"] = df_hand.apply(
-            lambda r: f"""
-                <b>🖤 {r['container_name']}</b><br>
-                Type: {r['content_type']}<br>
-                Vulgraad: {r['fill_level']}%<br>
-                Route: {r['dichtstbijzijnde_route']}<br>
-                Locatie: {r['address']}, {r['city']}
+            lambda row: f"""
+                <b>🖤 {row['container_name']}</b><br>
+                Type: {row['content_type']}<br>
+                Vulgraad: {row['fill_level']}%<br>
+                Route: {row['dichtstbijzijnde_route'] or "—"}<br>
+                Locatie: {row['address']}, {row['city']}
             """, axis=1
         )
         layers.append(pdk.Layer(
             "ScatterplotLayer",
-            data=df_hand.dropna(subset=["lat","lon"]),
-            get_position='[lon,lat]',
-            get_fill_color=[0,0,0,220],
+            data=df_hand.dropna(subset=["lat", "lon"]),
+            get_position='[lon, lat]',
+            get_fill_color=[0, 0, 0, 220],
             stroked=True,
-            radiusMinPixels=5, radiusMaxPixels=10,
+            radiusMinPixels=5,
+            radiusMaxPixels=10,
             pickable=True
         ))
 
@@ -586,41 +558,29 @@ with tab2:
         "style": {"backgroundColor": "steelblue", "color": "white"}
     }
 
-    # kaart
-    midpoint = (
-        [df_containers.lat.mean(), df_containers.lon.mean()]
-        if not df_containers.empty else [52.0, 4.3]
-    )
+    if not df_containers.empty:
+        midpoint = [df_containers["lat"].mean(), df_containers["lon"].mean()]
+    else:
+        midpoint = [52.0, 4.3]
+
     st.pydeck_chart(pdk.Deck(
         map_style="mapbox://styles/mapbox/streets-v12",
         initial_view_state=pdk.ViewState(
-            latitude=midpoint[0], longitude=midpoint[1], zoom=11, pitch=0
+            latitude=midpoint[0], longitude=midpoint[1],
+            zoom=11, pitch=0
         ),
         layers=layers,
         tooltip=tooltip
     ))
 
-    # logging vanaf kaart
     if not df_hand.empty:
-        if st.button("✅ Log geselecteerde containers (kaart)", key="log_map"):
-            count = log_extra_containers(df_hand, st.session_state.gebruiker)
-            if count:
-                st.success(f"✔️ {count} containers gelogd en bijgewerkt via kaart.")
-                st.session_state.refresh_needed = True
-                st.experimental_rerun()
-            else:
-                st.warning("⚠️ Geen nieuwe logs toegevoegd via kaart.")
-
         st.markdown("### 📋 Handmatig geselecteerde containers")
-        st.dataframe(
-            df_hand[[
-                "container_name","address","city","location_code",
-                "content_type","fill_level","dichtstbijzijnde_route"
-            ]], use_container_width=True
-        )
+        st.dataframe(df_hand[[
+            "container_name", "address", "city", "location_code", "content_type",
+            "fill_level", "dichtstbijzijnde_route"
+        ]], use_container_width=True)
     else:
         st.info("📋 Nog geen containers geselecteerd. Alleen routes worden getoond.")
-
 
 
 # ─── TAB 3: ROUTE STATUS ─────────────────────────
