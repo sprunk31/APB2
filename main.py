@@ -576,7 +576,7 @@ with tab2:
     if not df_hand.empty:
         st.markdown("### 📋 Handmatig geselecteerde containers")
         st.dataframe(df_hand[[
-            "container_name", "address", "city", "location_code", "content_type",
+            "container_name", "address", "city", "container_location", "content_type",
             "fill_level", "dichtstbijzijnde_route"
         ]], use_container_width=True)
     else:
