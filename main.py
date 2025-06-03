@@ -9,7 +9,6 @@ from collections import Counter
 import pydeck as pdk
 
 ## ─── LOGIN ───────────────────────────────────────
-# (blijft ongewijzigd)
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -21,7 +20,7 @@ def do_login():
         users = st.secrets["credentials"]["users"]
         if username in users and password == users[username]:
             st.session_state.authenticated = True
-            st.session_state.login_user = username
+            st.session_state.login_user = username       # Sla de ingelogde gebruiker op
             st.rerun()
         else:
             st.error("❌ Ongeldige gebruikersnaam of wachtwoord")
@@ -31,22 +30,18 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ─── GEBRUIKER KEUZE ─────────────────────────────
-# (blijft ongewijzigd)
+if "login_user" not in st.session_state:
+    st.session_state.login_user = None
+
 if st.session_state.authenticated and st.session_state.get("login_user") != "admin" and st.session_state.get("gebruiker") is None:
     with st.sidebar:
         st.header("👤 Kies je gebruiker")
         temp = st.selectbox("Gebruiker", ["Delft", "Den Haag"], key="temp_gebruiker")
         if st.button("Bevestig gebruiker"):
             st.session_state.gebruiker = temp
-            st.success(f"✅ Ingeset als gebruiker: {temp}")
+            st.success(f"✅ Ingezet als gebruiker: {temp}")
             st.rerun()
     st.stop()
-
-# Als login_user wél “admin” is, slaan we het keuze‐scherm over:
-if st.session_state.authenticated and st.session_state.login_user == "admin":
-    # Je kunt hier bijvoorbeeld alsnog een default-gebruiker zetten of niets doen
-    # st.session_state.gebruiker = "admin" of gewoon niets
-    pass
 
 # ─── DATABASE ────────────────────────────────────
 @st.cache_resource
@@ -105,7 +100,9 @@ def init_session_state():
         "refresh_needed": False,
         "extra_meegegeven_tijdelijk": [],
         "geselecteerde_routes": [],
-        "gebruiker": st.session_state.get("gebruiker")
+        "gebruiker": st.session_state.get("gebruiker"),
+        # Zet hier alvast een lege login_user, zodat de key altijd bestaat
+        "login_user": st.session_state.get("login_user", None),
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -113,45 +110,45 @@ def init_session_state():
 
 init_session_state()
 
-
 ## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
-    if st.button("🔄 Wissel gebruiker"):
-        st.session_state.gebruiker = None
-        st.rerun()
+    st.header("🔧 Instellingen")
 
-    login_user = st.session_state.get("login_user", None)
+    # 1) Haal op wie er ingelogd is
+    login_user = st.session_state.get("login_user")
 
-    # ─── CONTROLE: BESTAAT ER AL DATA VOOR VANDAAG? ────────────
+    # 2) Controle: bestaat er al data voor vandaag?
     try:
         df_today = run_query("""
-                SELECT 1
-                FROM apb_routes
-                WHERE datum = current_date
-                LIMIT 1
-            """)
+            SELECT 1
+            FROM apb_routes
+            WHERE datum = current_date
+            LIMIT 1
+        """)
         has_today = not df_today.empty
     except Exception as e:
         st.error(f"❌ Fout bij controle op bestaande data: {e}")
         has_today = False
 
-        # 3) Als login_user == "admin", toon altijd beide rollen (dus ook Upload)
+    # 3) Rol‐selectie: admin mag altijd Upload zien
     if login_user == "admin":
         rollen = ["Gebruiker", "Upload"]
     else:
-        # Voor alle andere gebruikers: verwijder Upload zodra er al data voor vandaag is
         if has_today:
             rollen = ["Gebruiker"]
-            st.info("✅ Data is up-to-date.")
+            st.info("✅ Data voor vandaag is aanwezig. De Upload‐optie is alleen voor admin.")
         else:
             rollen = ["Gebruiker", "Upload"]
 
-    rol = st.selectbox("👤 Kies je rol:", rollen) if len(rollen) > 1 else rollen[0]
+    # Als er slechts één rol in de lijst staat, hoef je geen selectbox te tonen
+    if len(rollen) == 1:
+        rol = rollen[0]
+    else:
+        rol = st.selectbox("👤 Kies je rol:", rollen)
 
     st.markdown(f"**Ingelogd als:** {login_user or '—'}")
     if login_user == "admin":
-        st.caption("👑 Je bent ingelogd als admin, je kunt altijd uploaden.")
+        st.caption("👑 Je bent ingelogd als admin en kunt altijd uploaden.")
 
     # Cache vernieuwen als nodig
     try:
@@ -204,9 +201,7 @@ with st.sidebar:
         except Exception as e:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
-
     elif rol == "Upload":
-        # … upload‐sectie toont altijd, ook als has_today == True, MAAR alleen voor admin …
         st.markdown("### 📤 Upload bestanden")
         file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
         file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
@@ -219,16 +214,17 @@ with st.sidebar:
                 df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
                 df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
                 df2 = pd.read_excel(file2)
+
                 df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
                 df1 = df1[
                     (df1['operational_state'].isin(['in use', 'issue detected'])) &
                     (df1['status'].str.strip().str.lower() == 'in use') &
                     (df1['on_hold'].str.strip().str.lower() == 'no')
-                    ].copy()
+                ].copy()
+
                 df1["content_type"] = df1["content_type"].apply(
                     lambda x: "Glas" if "glass" in str(x).lower() else x
                 )
-
                 df1["combinatietelling"] = df1.groupby(
                     ["location_code", "content_type"]
                 )["content_type"].transform("count")
@@ -237,33 +233,31 @@ with st.sidebar:
                 )["fill_level"].transform("mean")
                 df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"]).map({True: "Ja", False: "Nee"})
                 df1["extra_meegegeven"] = False
+
                 cols = [
                     "container_name", "address", "city", "location_code", "content_type",
                     "fill_level", "container_location", "combinatietelling",
                     "gemiddeldevulgraad", "oproute", "extra_meegegeven"
                 ]
-
                 df1 = df1[cols]
                 df1["datum_ingelezen"] = datetime.now().date()
-                engine = get_engine()
 
+                engine = get_engine()
                 with engine.begin() as conn:
                     conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
-
                 df1.to_sql("apb_containers", engine, if_exists="append", index=False)
+
                 df2 = df2.rename(columns={
                     "Route Omschrijving": "route_omschrijving",
                     "Omschrijving": "omschrijving",
                     "Datum": "datum"
                 })[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
-
                 with engine.begin() as conn:
                     conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
-
                 df2.to_sql("apb_routes", engine, if_exists="append", index=False)
+
                 st.session_state.refresh_needed = True
                 st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
-
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
 
