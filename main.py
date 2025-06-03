@@ -111,16 +111,6 @@ init_session_state()
 with st.sidebar:
     st.header("🔧 Instellingen")
 
-    # ─── GEBRUIKER KEUZE ALS SLIDER (Delft <–> Den Haag) ─────────
-    if "gebruiker" not in st.session_state:
-        st.session_state.gebruiker = "Delft"
-    st.subheader("👤 Kies je gebruiker")
-    st.select_slider(
-        label="Stad:",
-        options=["Delft", "Den Haag"],
-        key="gebruiker"
-    )
-
     # ─── CONTROLE: BESTAAT ER AL DATA VOOR VANDAAG? ────────────
     try:
         df_today = run_query("""
