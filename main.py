@@ -109,7 +109,10 @@ init_session_state()
 
 ## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
-    st.header("🔧 Instellingen")
+    st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
+    if st.button("🔄 Wissel gebruiker"):
+        st.session_state.gebruiker = None
+        st.rerun()
 
     # ─── CONTROLE: BESTAAT ER AL DATA VOOR VANDAAG? ────────────
     try:
