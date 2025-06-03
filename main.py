@@ -126,7 +126,7 @@ with st.sidebar:
         # Als er al data voor vandaag is, verberg je de rol-optie
     if has_today:
         rol = "Gebruiker"
-        st.info("✅ Data voor vandaag is aanwezig. Je zit automatisch in de Gebruiker-modus.")
+        st.info("✅ Data is up-to-date.")
     else:
         # Anders kan je kiezen om te “Uploaden” of “Gebruiker” te blijven
         rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
