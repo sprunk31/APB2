@@ -13,16 +13,13 @@ import pydeck as pdk
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
-
 def do_login():
     st.markdown("## 🔐 Log in om toegang te krijgen")
     username = st.text_input("Gebruikersnaam", key="login_user")
     password = st.text_input("Wachtwoord", type="password", key="login_pass")
     if st.button("Inloggen"):
-        auth_map = st.secrets["auth"]  # dict: { "admin": "...", "dennis": "...", ... }
-
-        # Kijk of de ingevoerde gebruikersnaam bestaat, en of het wachtwoord klopt
-        if username in auth_map and password == auth_map[username]:
+        creds = st.secrets["credentials"]
+        if username == creds["username"] and password == creds["password"]:
             st.session_state.authenticated = True
             st.rerun()
         else:
