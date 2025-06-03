@@ -29,17 +29,6 @@ if not st.session_state.authenticated:
     do_login()
     st.stop()
 
-# ─── GEBRUIKER KEUZE ─────────────────────────────
-# (blijft ongewijzigd)
-if st.session_state.authenticated and st.session_state.get("gebruiker") is None:
-    with st.sidebar:
-        st.header("👤 Kies je gebruiker")
-        temp = st.selectbox("Gebruiker", ["Delft", "Den Haag"], key="temp_gebruiker")
-        if st.button("Bevestig gebruiker"):
-            st.session_state.gebruiker = temp
-            st.success(f"✅ Ingeset als gebruiker: {temp}")
-            st.rerun()
-    st.stop()
 
 # ─── DATABASE ────────────────────────────────────
 @st.cache_resource
@@ -111,25 +100,35 @@ init_session_state()
 with st.sidebar:
     st.header("🔧 Instellingen")
 
+    # ─── GEBRUIKER KEUZE ALS SLIDER (Delft <–> Den Haag) ─────────
+    if "gebruiker" not in st.session_state:
+        st.session_state.gebruiker = "Delft"
+    st.subheader("👤 Kies je gebruiker")
+    st.select_slider(
+        label="Stad:",
+        options=["Delft", "Den Haag"],
+        key="gebruiker"
+    )
+
     # ─── CONTROLE: BESTAAT ER AL DATA VOOR VANDAAG? ────────────
     try:
         df_today = run_query("""
-            SELECT 1
-            FROM apb_routes
-            WHERE datum = current_date
-            LIMIT 1
-        """)
+                SELECT 1
+                FROM apb_routes
+                WHERE datum = current_date
+                LIMIT 1
+            """)
         has_today = not df_today.empty
     except Exception as e:
         st.error(f"❌ Fout bij controle op bestaande data: {e}")
         has_today = False
 
+        # Als er al data voor vandaag is, verberg je de rol-optie
     if has_today:
-        # Zodra er data voor vandaag is, hoef je niet meer te kiezen: altijd 'Gebruiker'
         rol = "Gebruiker"
-        st.info("✅ Data is up-to-date")
+        st.info("✅ Data voor vandaag is aanwezig. Je zit automatisch in de Gebruiker-modus.")
     else:
-        # Alleen als er nog geen data is, laat je de keuze zien
+        # Anders kan je kiezen om te “Uploaden” of “Gebruiker” te blijven
         rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
 
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
@@ -186,7 +185,7 @@ with st.sidebar:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
     elif rol == "Upload":
-        # Upload-sectie blijft ongewijzigd; wordt alleen getoond als has_today == False
+        # ─── UPLOAD-SECTIE ────────────────────────────────────
         st.markdown("### 📤 Upload bestanden")
 
         file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
@@ -196,6 +195,7 @@ with st.sidebar:
         if process and file1 and file2:
             try:
                 st.cache_data.clear()
+
                 df1 = pd.read_excel(file1)
                 df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
                 df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
@@ -206,7 +206,7 @@ with st.sidebar:
                     (df1['operational_state'].isin(['in use', 'issue detected'])) &
                     (df1['status'].str.strip().str.lower() == 'in use') &
                     (df1['on_hold'].str.strip().str.lower() == 'no')
-                ].copy()
+                    ].copy()
 
                 df1["content_type"] = df1["content_type"].apply(
                     lambda x: "Glas" if "glass" in str(x).lower() else x
