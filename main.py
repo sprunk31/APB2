@@ -128,7 +128,7 @@ with st.sidebar:
     # Stel de keuzelijst samen: verwijder "Upload" als er al data voor vandaag is
     if has_today:
         rollen = ["Gebruiker"]
-        st.info("✅ Er is al data voor vandaag ingelezen. De uploadfunctie is niet beschikbaar.")
+        st.info("✅ data is up-to-date")
     else:
         rollen = ["Gebruiker", "Upload"]
 
