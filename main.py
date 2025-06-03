@@ -101,12 +101,15 @@ with st.sidebar:
     st.header("🔧 Instellingen")
 
     # ─── GEBRUIKER KEUZE ALS SLIDER (Delft <–> Den Haag) ─────────
-    if "gebruiker" not in st.session_state:
+    if "gebruiker" not in st.session_state or st.session_state.gebruiker not in ["Delft", "Den Haag"]:
         st.session_state.gebruiker = "Delft"
+
+    # … later in de sidebar …
     st.subheader("👤 Kies je gebruiker")
     st.select_slider(
         label="Stad:",
         options=["Delft", "Den Haag"],
+        value=st.session_state.gebruiker,  # dwingt terug naar een geldige optie
         key="gebruiker"
     )
 
