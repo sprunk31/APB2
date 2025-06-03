@@ -18,8 +18,9 @@ def do_login():
     username = st.text_input("Gebruikersnaam", key="login_user")
     password = st.text_input("Wachtwoord", type="password", key="login_pass")
     if st.button("Inloggen"):
-        creds = st.secrets["credentials"]
-        if username == creds["username"] and password == creds["password"]:
+        users = st.secrets["credentials"]["users"]
+        # controleer of de ingevoerde username bestaat en het wachtwoord overeenkomt
+        if username in users and password == users[username]:
             st.session_state.authenticated = True
             st.rerun()
         else:
