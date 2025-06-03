@@ -106,7 +106,7 @@ def init_session_state():
 
 init_session_state()
 
-## ─── SIDEBAR ─────────────────────────────────────
+
 ## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
@@ -122,17 +122,15 @@ with st.sidebar:
         has_today = not df_today.empty
     except Exception as e:
         st.error(f"❌ Fout bij controle op bestaande data: {e}")
-        # Als de query mislukt, laten we de gebruiker in de war: toon dan toch beide opties
         has_today = False
 
-    # Stel de keuzelijst samen: verwijder "Upload" als er al data voor vandaag is
     if has_today:
-        rollen = ["Gebruiker"]
-        st.info("✅ data is up-to-date")
+        # Zodra er data voor vandaag is, hoef je niet meer te kiezen: altijd 'Gebruiker'
+        rol = "Gebruiker"
+        st.info("✅ Data is up-to-date")
     else:
-        rollen = ["Gebruiker", "Upload"]
-
-    rol = st.selectbox("👤 Kies je rol:", rollen)
+        # Alleen als er nog geen data is, laat je de keuze zien
+        rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
 
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
@@ -149,7 +147,6 @@ with st.sidebar:
 
     if rol == "Gebruiker":
         st.markdown("### 🔎 Filters")
-        # Content type filter as checkboxes in an expander
         types = sorted(df_sidebar["content_type"].dropna().unique())
         if "selected_types" not in st.session_state:
             st.session_state.selected_types = []
@@ -189,7 +186,7 @@ with st.sidebar:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
     elif rol == "Upload":
-        # (de bestaande upload-logica blijft ongewijzigd)
+        # Upload-sectie blijft ongewijzigd; wordt alleen getoond als has_today == False
         st.markdown("### 📤 Upload bestanden")
 
         file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
@@ -198,10 +195,7 @@ with st.sidebar:
 
         if process and file1 and file2:
             try:
-                # 1) Leeg de cache
                 st.cache_data.clear()
-
-                # 2) Lees en verwerk de uploads
                 df1 = pd.read_excel(file1)
                 df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
                 df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
@@ -248,11 +242,11 @@ with st.sidebar:
                     conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
                 df2.to_sql("apb_routes", engine, if_exists="append", index=False)
 
-                # Markeer voor herladen in hoofd-app
                 st.session_state.refresh_needed = True
                 st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+
 
 
 # ─── DASHBOARD (voorheen tab1) ───────────────────────────────
