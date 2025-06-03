@@ -97,41 +97,39 @@ init_session_state()
 
 
 ## ─── SIDEBAR ─────────────────────────────────────
+if "gebruiker" not in st.session_state or st.session_state.gebruiker not in ["Delft", "Den Haag"]:
+    st.session_state.gebruiker = "Delft"
+
 with st.sidebar:
     st.header("🔧 Instellingen")
 
-    # ─── GEBRUIKER KEUZE ALS SLIDER (Delft <–> Den Haag) ─────────
-    if "gebruiker" not in st.session_state or st.session_state.gebruiker not in ["Delft", "Den Haag"]:
-        st.session_state.gebruiker = "Delft"
+    # Plaats slider in een smallere kolom en verberg de label
+    col_small, _ = st.columns([1, 4])
+    with col_small:
+        st.select_slider(
+            "",
+            options=["Delft", "Den Haag"],
+            key="gebruiker",
+            label_visibility="collapsed"
+        )
 
-    # … later in de sidebar …
-    st.subheader("👤 Kies je gebruiker")
-    st.select_slider(
-        label="Stad:",
-        options=["Delft", "Den Haag"],
-        value=st.session_state.gebruiker,  # dwingt terug naar een geldige optie
-        key="gebruiker"
-    )
-
-    # ─── CONTROLE: BESTAAT ER AL DATA VOOR VANDAAG? ────────────
+    # Rest van je sidebar-logica…
     try:
         df_today = run_query("""
-                SELECT 1
-                FROM apb_routes
-                WHERE datum = current_date
-                LIMIT 1
-            """)
+            SELECT 1
+            FROM apb_routes
+            WHERE datum = current_date
+            LIMIT 1
+        """)
         has_today = not df_today.empty
     except Exception as e:
         st.error(f"❌ Fout bij controle op bestaande data: {e}")
         has_today = False
 
-        # Als er al data voor vandaag is, verberg je de rol-optie
     if has_today:
         rol = "Gebruiker"
         st.info("✅ Data is up-to-date.")
     else:
-        # Anders kan je kiezen om te “Uploaden” of “Gebruiker” te blijven
         rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
 
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
