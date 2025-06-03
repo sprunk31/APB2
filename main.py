@@ -35,11 +35,11 @@ if "login_user" not in st.session_state:
 
 if st.session_state.authenticated and st.session_state.get("login_user") != "admin" and st.session_state.get("gebruiker") is None:
     with st.sidebar:
-        st.header("👤 Kies je gebruiker")
-        temp = st.selectbox("Gebruiker", ["Delft", "Den Haag"], key="temp_gebruiker")
-        if st.button("Bevestig gebruiker"):
+        st.header("👤 Kies je vestiging")
+        temp = st.selectbox("Vestiging", ["Delft", "Den Haag"], key="temp_gebruiker")
+        if st.button("Vestiging"):
             st.session_state.gebruiker = temp
-            st.success(f"✅ Ingezet als gebruiker: {temp}")
+            st.success(f"✅ Vestiging: {temp}")
             st.rerun()
     st.stop()
 
