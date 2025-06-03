@@ -185,9 +185,9 @@ with st.sidebar:
 
                     SELECT 1
 
-                    FROM apb_containers
+                    FROM apb_routes
 
-                    WHERE datum_ingelezen = current_date
+                    WHERE datum = current_date
 
                     LIMIT 1
 
