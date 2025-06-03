@@ -113,14 +113,35 @@ init_session_state()
 
 ## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
-    st.header("🔧 Instellingen")
-
-    # 1) Haal op wie er ingelogd is
+    # 1) Toon de ingelogde user en voeg een logout‐knop toe
     login_user = st.session_state.get("login_user")
-    st.markdown(f"**Ingelogd als:** Vestiging: {st.session_state.gebruiker}")
-    if st.button("🔄 Wissel vestiging"):
-        st.session_state.gebruiker = None
-        st.rerun()
+    if login_user:
+        st.markdown(f"**Ingelogd als:** {login_user}")
+        if st.button("🔓 Logout"):
+            # Wis alles en ga terug naar het login‐scherm
+            st.session_state.authenticated = False
+            st.session_state.login_user = None
+            st.session_state.gebruiker = None
+            st.rerun()
+    else:
+        st.markdown("**Niet ingelogd**")
+
+    st.write("---")
+
+    # 2) Toon de vestiging (indien van toepassing) en voeg een wissel‐knop toe
+    vestiging = st.session_state.get("gebruiker")
+    # Alleen relevant als de ingelogde gebruiker niet 'admin' is
+    if login_user and login_user != "admin":
+        if vestiging:
+            st.markdown(f"**Vestiging:** {vestiging}")
+            if st.button("🔄 Wissel vestiging"):
+                st.session_state.gebruiker = None
+                st.rerun()
+        else:
+            st.markdown("**Vestiging:** nog niet ingesteld")
+    elif login_user == "admin":
+        # Voor admin kun je vestiging optioneel gebruiken of verbergen
+        st.markdown("**Admin‐account**")
 
     # 2) Controle: bestaat er al data voor vandaag?
     try:
