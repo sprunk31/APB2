@@ -15,16 +15,16 @@ if "authenticated" not in st.session_state:
 
 def do_login():
     st.markdown("## 🔐 Log in om toegang te krijgen")
-    username = st.text_input("Gebruikersnaam", key="login_user")
+    username = st.text_input("Gebruikersnaam", key="login_user").lower().strip()
     password = st.text_input("Wachtwoord", type="password", key="login_pass")
     if st.button("Inloggen"):
-        users = st.secrets["credentials"]["users"]
-        # controleer of de ingevoerde username bestaat en het wachtwoord overeenkomt
+        users = { k.lower(): v for k, v in st.secrets["credentials"]["users"].items() }
         if username in users and password == users[username]:
             st.session_state.authenticated = True
             st.rerun()
         else:
             st.error("❌ Ongeldige gebruikersnaam of wachtwoord")
+
 
 if not st.session_state.authenticated:
     do_login()
