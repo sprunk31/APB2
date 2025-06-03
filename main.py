@@ -113,12 +113,12 @@ init_session_state()
 
 ## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
-    # 1) Toon de ingelogde user en voeg een logout‐knop toe
+    # 1) Toon de ingelogde user en voeg een logout-knop toe
     login_user = st.session_state.get("login_user")
     if login_user:
         st.markdown(f"**Ingelogd als:** {login_user}")
-        if st.button("🔓 Logout"):
-            # Wis alles en ga terug naar het login‐scherm
+        if st.button("🔓 Logout", key="btn_logout"):
+            # Wis alles en ga terug naar het login-scherm
             st.session_state.authenticated = False
             st.session_state.login_user = None
             st.session_state.gebruiker = None
@@ -128,22 +128,22 @@ with st.sidebar:
 
     st.write("---")
 
-    # 2) Toon de vestiging (indien van toepassing) en voeg een wissel‐knop toe
+    # 2) Toon de vestiging (indien van toepassing) en voeg een wissel-knop toe
     vestiging = st.session_state.get("gebruiker")
-    # Alleen relevant als de ingelogde gebruiker niet 'admin' is
     if login_user and login_user != "admin":
         if vestiging:
             st.markdown(f"**Vestiging:** {vestiging}")
-            if st.button("🔄 Wissel vestiging"):
+            if st.button("🔄 Wissel vestiging", key="btn_wissel_vestiging"):
                 st.session_state.gebruiker = None
                 st.rerun()
         else:
             st.markdown("**Vestiging:** nog niet ingesteld")
     elif login_user == "admin":
-        # Voor admin kun je vestiging optioneel gebruiken of verbergen
-        st.markdown("**Admin‐account**")
+        st.markdown("**Admin-account**")
 
-    # 2) Controle: bestaat er al data voor vandaag?
+    st.write("---")
+
+    # 3) Controle: bestaat er al data voor vandaag?
     try:
         df_today = run_query("""
             SELECT 1
@@ -156,7 +156,7 @@ with st.sidebar:
         st.error(f"❌ Fout bij controle op bestaande data: {e}")
         has_today = False
 
-    # 3) Rol‐selectie: admin mag altijd Upload zien
+    # 4) Rol-selectie: admin mag altijd Upload zien
     if login_user == "admin":
         rollen = ["Gebruiker", "Upload"]
     else:
@@ -166,13 +166,12 @@ with st.sidebar:
         else:
             rollen = ["Gebruiker", "Upload"]
 
-    # Als er slechts één rol in de lijst staat, hoef je geen selectbox te tonen
+    # Als er slechts één rol in de lijst staat, laat geen dropdown zien
     if len(rollen) == 1:
         rol = rollen[0]
     else:
-        rol = st.selectbox("👤 Kies je rol:", rollen)
+        rol = st.selectbox("👤 Kies je rol:", rollen, key="select_rol")
 
-    st.markdown(f"**Ingelogd als:** {login_user or '—'}")
     if login_user == "admin":
         st.caption("👑 Je bent ingelogd als admin en kunt altijd uploaden.")
 
@@ -231,7 +230,7 @@ with st.sidebar:
         st.markdown("### 📤 Upload bestanden")
         file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
         file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
-        process = st.button("🗄️ Verwerk en laad data")
+        process = st.button("🗄️ Verwerk en laad data", key="btn_verwerk_upload")
 
         if process and file1 and file2:
             try:
@@ -286,6 +285,7 @@ with st.sidebar:
                 st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+
 
 # ─── DASHBOARD (voorheen tab1) ───────────────────────────────
 st.header("📊 Dashboard")
