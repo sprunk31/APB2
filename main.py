@@ -136,7 +136,7 @@ with st.sidebar:
     else:
         if has_today:
             rollen = ["Gebruiker"]
-            st.info("✅ Data voor vandaag is aanwezig. De Upload‐optie is alleen voor admin.")
+            st.info("✅ Data is up-to-date.")
         else:
             rollen = ["Gebruiker", "Upload"]
 
