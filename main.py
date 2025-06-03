@@ -107,9 +107,33 @@ def init_session_state():
 init_session_state()
 
 ## ─── SIDEBAR ─────────────────────────────────────
+## ─── SIDEBAR ─────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Instellingen")
-    rol = st.selectbox("👤 Kies je rol:", ["Gebruiker", "Upload"])
+
+    # ─── CONTROLE: BESTAAT ER AL DATA VOOR VANDAAG? ────────────
+    try:
+        df_today = run_query("""
+            SELECT 1
+            FROM apb_routes
+            WHERE datum = current_date
+            LIMIT 1
+        """)
+        has_today = not df_today.empty
+    except Exception as e:
+        st.error(f"❌ Fout bij controle op bestaande data: {e}")
+        # Als de query mislukt, laten we de gebruiker in de war: toon dan toch beide opties
+        has_today = False
+
+    # Stel de keuzelijst samen: verwijder "Upload" als er al data voor vandaag is
+    if has_today:
+        rollen = ["Gebruiker"]
+        st.info("✅ Er is al data voor vandaag ingelezen. De uploadfunctie is niet beschikbaar.")
+    else:
+        rollen = ["Gebruiker", "Upload"]
+
+    rol = st.selectbox("👤 Kies je rol:", rollen)
+
     st.markdown(f"**Ingelogd als:** {st.session_state.gebruiker}")
 
     # Cache vernieuwen als nodig
@@ -125,6 +149,7 @@ with st.sidebar:
 
     if rol == "Gebruiker":
         st.markdown("### 🔎 Filters")
+        # Content type filter as checkboxes in an expander
         types = sorted(df_sidebar["content_type"].dropna().unique())
         if "selected_types" not in st.session_state:
             st.session_state.selected_types = []
@@ -164,80 +189,71 @@ with st.sidebar:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
     elif rol == "Upload":
-        # ─── CONTROLE: BESTAAT ER AL DATA VOOR VANDAAG? ────────────
-        try:
-            df_today = run_query("""
-                SELECT 1
-                FROM apb_routes
-                WHERE datum = current_date
-                LIMIT 1
-            """)
-            has_today = not df_today.empty
-        except Exception as e:
-            st.error(f"❌ Fout bij controle op bestaande data: {e}")
-            has_today = False
+        # (de bestaande upload-logica blijft ongewijzigd)
+        st.markdown("### 📤 Upload bestanden")
 
-        if has_today:
-            st.info("✅ Er is al data voor vandaag ingelezen. De uploadfunctie is niet meer nodig.")
-        else:
-            st.markdown("### 📤 Upload bestanden")
-            file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
-            file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
-            process = st.button("🗄️ Verwerk en laad data")
+        file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
+        file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
+        process = st.button("🗄️ Verwerk en laad data")
 
-            if process and file1 and file2:
-                try:
-                    st.cache_data.clear()
-                    df1 = pd.read_excel(file1)
-                    df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
-                    df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
-                    df2 = pd.read_excel(file2)
+        if process and file1 and file2:
+            try:
+                # 1) Leeg de cache
+                st.cache_data.clear()
 
-                    df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
-                    df1 = df1[
-                        (df1['operational_state'].isin(['in use', 'issue detected'])) &
-                        (df1['status'].str.strip().str.lower() == 'in use') &
-                        (df1['on_hold'].str.strip().str.lower() == 'no')
-                    ].copy()
+                # 2) Lees en verwerk de uploads
+                df1 = pd.read_excel(file1)
+                df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
+                df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
+                df2 = pd.read_excel(file2)
 
-                    df1["content_type"] = df1["content_type"].apply(
-                        lambda x: "Glas" if "glass" in str(x).lower() else x
-                    )
-                    df1["combinatietelling"] = df1.groupby(
-                        ["location_code", "content_type"]
-                    )["content_type"].transform("count")
-                    df1["gemiddeldevulgraad"] = df1.groupby(
-                        ["location_code", "content_type"]
-                    )["fill_level"].transform("mean")
-                    df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"]).map({True: "Ja", False: "Nee"})
-                    df1["extra_meegegeven"] = False
+                df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
+                df1 = df1[
+                    (df1['operational_state'].isin(['in use', 'issue detected'])) &
+                    (df1['status'].str.strip().str.lower() == 'in use') &
+                    (df1['on_hold'].str.strip().str.lower() == 'no')
+                ].copy()
 
-                    cols = [
-                        "container_name", "address", "city", "location_code", "content_type",
-                        "fill_level", "container_location", "combinatietelling",
-                        "gemiddeldevulgraad", "oproute", "extra_meegegeven"
-                    ]
-                    df1 = df1[cols]
-                    df1["datum_ingelezen"] = datetime.now().date()
+                df1["content_type"] = df1["content_type"].apply(
+                    lambda x: "Glas" if "glass" in str(x).lower() else x
+                )
+                df1["combinatietelling"] = df1.groupby(
+                    ["location_code", "content_type"]
+                )["content_type"].transform("count")
+                df1["gemiddeldevulgraad"] = df1.groupby(
+                    ["location_code", "content_type"]
+                )["fill_level"].transform("mean")
+                df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"]).map({True: "Ja", False: "Nee"})
+                df1["extra_meegegeven"] = False
 
-                    engine = get_engine()
-                    with engine.begin() as conn:
-                        conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
-                    df1.to_sql("apb_containers", engine, if_exists="append", index=False)
+                cols = [
+                    "container_name", "address", "city", "location_code", "content_type",
+                    "fill_level", "container_location", "combinatietelling",
+                    "gemiddeldevulgraad", "oproute", "extra_meegegeven"
+                ]
+                df1 = df1[cols]
+                df1["datum_ingelezen"] = datetime.now().date()
 
-                    df2 = df2.rename(columns={
-                        "Route Omschrijving": "route_omschrijving",
-                        "Omschrijving": "omschrijving",
-                        "Datum": "datum"
-                    })[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
-                    with engine.begin() as conn:
-                        conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
-                    df2.to_sql("apb_routes", engine, if_exists="append", index=False)
+                engine = get_engine()
+                with engine.begin() as conn:
+                    conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
+                df1.to_sql("apb_containers", engine, if_exists="append", index=False)
 
-                    st.session_state.refresh_needed = True
-                    st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
-                except Exception as e:
-                    st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+                df2 = df2.rename(columns={
+                    "Route Omschrijving": "route_omschrijving",
+                    "Omschrijving": "omschrijving",
+                    "Datum": "datum"
+                })[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
+                with engine.begin() as conn:
+                    conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
+                df2.to_sql("apb_routes", engine, if_exists="append", index=False)
+
+                # Markeer voor herladen in hoofd-app
+                st.session_state.refresh_needed = True
+                st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
+            except Exception as e:
+                st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+
 
 # ─── DASHBOARD (voorheen tab1) ───────────────────────────────
 st.header("📊 Dashboard")
