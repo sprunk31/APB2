@@ -323,6 +323,7 @@ with st.expander("🔍 Zoekfilters"):
     col1, col2 = st.columns(2)
     with col1:
         zoek_naam = st.text_input("🔤 Zoek op container_name").strip().lower()
+        zoek_city = st.text_input("🏙️ Zoek op city").strip().lower()
     with col2:
         zoek_straat = st.text_input("📍 Zoek op address").strip().lower()
 
@@ -330,7 +331,7 @@ with st.expander("🔍 Zoekfilters"):
 bewerkbaar = df[~df["extra_meegegeven"]].copy()
 
 # Zonder zoekopdracht -> filter op oproute en content_type uit sidebar
-if not zoek_naam and not zoek_straat:
+if not zoek_naam and not zoek_straat and not zoek_city:
     bewerkbaar = bewerkbaar[bewerkbaar["oproute"] == "Nee"]
     bewerkbaar = bewerkbaar[bewerkbaar["content_type"].isin(st.session_state.selected_types)]
 
@@ -339,6 +340,9 @@ if zoek_naam:
     bewerkbaar = bewerkbaar[bewerkbaar["container_name"].str.lower().str.contains(zoek_naam)]
 if zoek_straat:
     bewerkbaar = bewerkbaar[bewerkbaar["address"].str.lower().str.contains(zoek_straat)]
+if zoek_city:
+    bewerkbaar = bewerkbaar[bewerkbaar["city"].str.lower().str.contains(zoek_city)]
+
 
 # Sorteer altijd op content_type > gemiddeldevulgraad
 bewerkbaar = bewerkbaar.sort_values(["content_type", "gemiddeldevulgraad"], ascending=[True, False])
