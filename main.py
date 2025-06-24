@@ -326,6 +326,7 @@ with st.expander("🔍 Zoekfilters"):
         zoek_city = st.text_input("🏙️ Zoek op city").strip().lower()
     with col2:
         zoek_straat = st.text_input("📍 Zoek op address").strip().lower()
+        zoek_fractie = st.text_input("🏙️ Zoek op fractie").strip().lower()
 
 # Start met alle containers die nog niet extra zijn meegegeven
 bewerkbaar = df[~df["extra_meegegeven"]].copy()
@@ -342,6 +343,8 @@ if zoek_straat:
     bewerkbaar = bewerkbaar[bewerkbaar["address"].str.lower().str.contains(zoek_straat)]
 if zoek_city:
     bewerkbaar = bewerkbaar[bewerkbaar["city"].str.lower().str.contains(zoek_city)]
+if zoek_fractie:
+    bewerkbaar = bewerkbaar[bewerkbaar["content_type"].str.lower().str.contains(zoek_fractie)]
 
 
 # Sorteer altijd op content_type > gemiddeldevulgraad
