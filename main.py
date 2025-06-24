@@ -345,7 +345,7 @@ if zoek_city:
 
 
 # Sorteer altijd op content_type > gemiddeldevulgraad
-bewerkbaar = bewerkbaar.sort_values(["gemiddeldevulgraad", "content_type"], ascending=[True, False])
+bewerkbaar = bewerkbaar.sort_values(["gemiddeldevulgraad", "content_type"], ascending=[False, True])
 
 zichtbaar = [
     "container_name", "address", "city", "location_code", "content_type",
