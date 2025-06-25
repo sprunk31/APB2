@@ -8,67 +8,6 @@ from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
 
-import os
-import tempfile
-import time
-import pandas as pd
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-
-def download_abel_excel_selenium(username, password):
-    download_dir = tempfile.mkdtemp()
-    before_files = set(os.listdir(download_dir))
-
-    options = webdriver.ChromeOptions()
-    prefs = {
-        "download.default_directory": download_dir,
-        "download.prompt_for_download": False,
-        "directory_upgrade": True,
-        "safebrowsing.enabled": True
-    }
-    options.add_experimental_option("prefs", prefs)
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-
-    try:
-        driver.get("https://auth.dutchsense.net/u/login")
-        driver.find_element(By.NAME, "username").send_keys(username)
-        pw = driver.find_element(By.NAME, "password")
-        pw.send_keys(password)
-        pw.send_keys(Keys.RETURN)
-
-        time.sleep(8)
-
-        driver.get("https://apps.dutchsense.net/waste/17/nodes/export/excel?sortBy=wastelocation.streetname&sortDescending=false&type=0&containerType=-1&fillLevelMetric=percent&freeCapacityMin&freeCapacityMax&freeCapacityMetric&amountPerPage=20&batch=-1")
-
-        timeout = 120
-        waited = 0
-        while waited < timeout:
-            files_now = set(os.listdir(download_dir))
-            new_files = files_now - before_files
-            if any(f.endswith(".xlsx") for f in new_files):
-                break
-            time.sleep(2)
-            waited += 2
-
-        files_now = set(os.listdir(download_dir))
-        new_files = files_now - before_files
-        xlsx_files = [os.path.join(download_dir, f) for f in new_files if f.endswith(".xlsx")]
-
-        if not xlsx_files:
-            raise FileNotFoundError("✅ Login gelukt, maar geen bestand gevonden.")
-
-        return xlsx_files[0]
-
-    finally:
-        driver.quit()
-
 
 ## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
@@ -290,27 +229,7 @@ with st.sidebar:
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
-        st.markdown("🟢 **Bestand van Abel**")
-
-        if not st.session_state.get("abel_loaded"):
-            try:
-                bestandspad = download_abel_excel_selenium(
-                    st.secrets["dutchsense"]["username"],
-                    st.secrets["dutchsense"]["password"]
-                )
-                df1 = pd.read_excel(bestandspad)
-                df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
-                df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
-                st.session_state.df1 = df1
-                st.session_state.abel_loaded = True
-                st.success("✅ Bestand van Abel is automatisch ingelezen.")
-            except Exception as e:
-                st.error(f"❌ Download mislukt: {e}")
-                st.stop()
-        else:
-            st.success("✅ Bestand van Abel is al ingelezen.")
-            df1 = st.session_state.df1
-
+        file1 = st.file_uploader("🟢 Bestand van Abel", type=["xlsx"], key="upload_abel")
         file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
         process = st.button("🗄️ Verwerk en laad data", key="btn_verwerk_upload")
 
