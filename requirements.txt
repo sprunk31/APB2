@@ -5,5 +5,9 @@ psycopg2-binary>=2.9.9
 openpyxl>=3.1.2
 streamlit-aggrid>=0.3.4
 geopy>=2.4.1
-pydeck
-matplotlib
+pydeck>=0.8.1b0
+matplotlib>=3.8.4
+
+# Voor automatische Excel-download via headless browser
+selenium>=4.21.0
+webdriver-manager>=4.0.1
