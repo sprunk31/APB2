@@ -8,55 +8,28 @@ from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
 
-import os
-import time
-import tempfile
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+import requests
+from io import BytesIO
 
-def download_abel_file():
-    download_dir = tempfile.mkdtemp()
-    file_before = set(os.listdir(download_dir))
+def download_abel_excel():
+    login_url = 'https://auth.dutchsense.net/u/login'
+    download_url = 'https://apps.dutchsense.net/waste/17/nodes/export/excel?sortBy=wastelocation.streetname&sortDescending=false&type=0&containerType=-1&fillLevelMetric=percent&freeCapacityMin&freeCapacityMax&freeCapacityMetric&amountPerPage=20&batch=-1'
 
-    options = webdriver.ChromeOptions()
-    prefs = {
-        "download.default_directory": download_dir,
-        "download.prompt_for_download": False,
-        "directory_upgrade": True,
-        "safebrowsing.enabled": True
+    session = requests.Session()
+    login_payload = {
+        'username': st.secrets["dutchsense"]["username"],
+        'password': st.secrets["dutchsense"]["password"]
     }
-    options.add_experimental_option("prefs", prefs)
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    login_response = session.post(login_url, data=login_payload)
+    if login_response.status_code != 200 or "invalid" in login_response.text.lower():
+        raise Exception("❌ Inloggen mislukt bij DutchSense")
 
-    try:
-        driver.get("https://auth.dutchsense.net/u/login")
-        driver.find_element(By.NAME, 'username').send_keys(st.secrets["dutchsense"]["username"])
-        pw = driver.find_element(By.NAME, 'password')
-        pw.send_keys(st.secrets["dutchsense"]["password"])
-        pw.send_keys(Keys.RETURN)
+    download_response = session.get(download_url)
+    if download_response.status_code != 200:
+        raise Exception("❌ Download mislukt")
 
-        time.sleep(8)
-
-        driver.get("https://apps.dutchsense.net/waste/17/nodes/export/excel?...")  # <- vul volledige URL in
-        time.sleep(10)
-    finally:
-        driver.quit()
-
-    files_after = set(os.listdir(download_dir))
-    new_files = files_after - file_before
-    xlsx_files = [f for f in new_files if f.lower().endswith(".xlsx")]
-
-    if not xlsx_files:
-        raise FileNotFoundError("Geen Excel-bestand gevonden na download.")
-
-    return os.path.join(download_dir, xlsx_files[0])
+    return BytesIO(download_response.content)
 
 ## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
@@ -277,12 +250,12 @@ with st.sidebar:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
     elif rol == "Upload":
-        st.markdown("### 📤 Upload bestanden")
         st.markdown("🟢 **Bestand van Abel**")
+
         if not st.session_state.get("abel_loaded"):
             try:
-                filepath = download_abel_file()
-                df1 = pd.read_excel(filepath)
+                abel_file = download_abel_excel()
+                df1 = pd.read_excel(abel_file)
                 df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
                 df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
                 st.session_state.df1 = df1
@@ -290,18 +263,18 @@ with st.sidebar:
                 st.success("✅ Bestand automatisch ingelezen.")
             except Exception as e:
                 st.error(f"❌ Download mislukt: {e}")
+                st.stop()
         else:
             st.success("✅ Bestand van Abel is al automatisch verwerkt.")
             df1 = st.session_state.df1
+
+        # Upload voor Pieterbas blijft gewoon staan
         file2 = st.file_uploader("🔵 Bestand van Pieterbas", type=["xlsx"], key="upload_pb")
         process = st.button("🗄️ Verwerk en laad data", key="btn_verwerk_upload")
 
-        if process and file1 and file2:
+        if process and file2:
             try:
                 st.cache_data.clear()
-                df1 = pd.read_excel(file1)
-                df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
-                df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
                 df2 = pd.read_excel(file2)
 
                 df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
@@ -309,7 +282,7 @@ with st.sidebar:
                     (df1['operational_state'].isin(['in use', 'issue detected'])) &
                     (df1['status'].str.strip().str.lower() == 'in use') &
                     (df1['on_hold'].str.strip().str.lower() == 'no')
-                ].copy()
+                    ].copy()
 
                 df1["content_type"] = df1["content_type"].apply(
                     lambda x: "Glas" if "glass" in str(x).lower() else x
@@ -349,7 +322,6 @@ with st.sidebar:
                 st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
-
 
 # ─── DASHBOARD (voorheen tab1) ───────────────────────────────
 st.header("📊 Dashboard")
