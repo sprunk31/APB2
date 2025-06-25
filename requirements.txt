@@ -1,10 +1,22 @@
+# Streamlit web framework
 streamlit==1.45.0
+
+# Excel- en databewerking
 pandas>=2.2.2
+openpyxl>=3.1.2
+
+# Database connectie
 sqlalchemy>=2.0.30
 psycopg2-binary>=2.9.9
-openpyxl>=3.1.2
+
+# Streamlit component
 streamlit-aggrid>=0.3.4
+
+# Geo-analyse en kaarten
 geopy>=2.4.1
 pydeck
 matplotlib
-requests>=2.31.0
+
+# Voor Selenium en automatische bestandsdownload
+selenium>=4.20.0
+webdriver-manager>=4.0.1
