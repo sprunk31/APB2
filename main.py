@@ -274,7 +274,7 @@ with st.sidebar:
                 df1.to_sql("apb_containers", engine, if_exists="append", index=False)
 
                 df2 = df2.rename(columns={
-                    "Route Omschriving": "route_omschrijving",
+                    "Route Omschrijving": "route_omschrijving",
                     "Omschrijving": "omschrijving",
                     "Datum": "datum"
                 })[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
