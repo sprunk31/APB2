@@ -421,8 +421,8 @@ if st.button("✅ Wijzigingen toepassen en loggen"):
             )
             execute_query("""
                 INSERT INTO apb_logboek_afvalcontainers
-                (container_name, address, city, location_code, content_type, fill_level, datum, gebruiker)
-                VALUES (:a, :b, :c, :d, :e, :f, :g, :h)
+                (container_name, address, city, location_code, content_type, fill_level, datum, gebruiker, login_user)
+                VALUES (:a, :b, :c, :d, :e, :f, :g, :h, :i)
             """, {
                 "a": row["container_name"],
                 "b": row["address"],
@@ -431,7 +431,8 @@ if st.button("✅ Wijzigingen toepassen en loggen"):
                 "e": row["content_type"],
                 "f": row["fill_level"],
                 "g": datetime.now(),
-                "h": st.session_state.gebruiker
+                "h": st.session_state.gebruiker,
+                "i": st.session_state.login_user
             })
             count += 1
 
