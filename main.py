@@ -444,8 +444,27 @@ if st.button("✅ Wijzigingen toepassen en loggen"):
             st.warning("⚠️ Geen nieuwe logs toegevoegd.")
 
 st.subheader("🔒 Reeds gemarkeerde containers")
-reeds = df[df["extra_meegegeven"]]
-st.dataframe(reeds[zichtbaar], use_container_width=True)
+# 1) Haal alle containers die extra_meegegeven=True
+reeds = df[df["extra_meegegeven"]].copy()
+
+# 2) Haal uit de logboek-tabel de login_user per container
+df_logboek_users = run_query("""
+    SELECT container_name,
+           login_user
+    FROM apb_logboek_afvalcontainers
+    WHERE datum::date = CURRENT_DATE
+""")
+
+# 3) Merge om login_user toe te voegen
+reeds = reeds.merge(
+    df_logboek_users,
+    on="container_name",
+    how="left"
+)
+
+# 4) Toon alle zichtbare kolommen + login_user
+kolommen = zichtbaar + ["login_user"]
+st.dataframe(reeds[kolommen], use_container_width=True)
 
 # ─── KAARTWEERGAVE (voorheen tab2) ─────────────────────────
 st.header("🗺️ Kaartweergave")
