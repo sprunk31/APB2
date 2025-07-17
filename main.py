@@ -194,44 +194,47 @@ with st.sidebar:
         if not heeft_actueel:
             st.info("📬 Geen actuele data beschikbaar")
         else:
+            # --- ALLE FILTER-UI binnen de else! ---
             st.markdown("### 🔎 Filters")
-        types = sorted(df_sidebar["content_type"].dropna().unique())
-        if "selected_types" not in st.session_state:
-            st.session_state.selected_types = []
-        with st.expander("Content types", expanded=True):
-            selected_types = []
-            for t in types:
-                checked = st.checkbox(
-                    label=t,
-                    value=(t in st.session_state.selected_types),
-                    key=f"cb_type_{t}"
-                )
-                if checked:
-                    selected_types.append(t)
-            st.session_state.selected_types = selected_types
 
-        st.markdown("### 🚚 Routeselectie")
-        try:
-            df_routes_full = get_df_routes()
-            if not df_routes_full.empty:
-                route_counts = df_routes_full["route_omschrijving"].value_counts().to_dict()
-                beschikbare_routes = sorted(route_counts.items())
-                label_to_route = {f"{route} ({count})": route for route, count in beschikbare_routes}
-                with st.expander("Selecteer routes", expanded=True):
-                    geselecteerde = []
-                    for label, route in label_to_route.items():
-                        checked = st.checkbox(
-                            label=label,
-                            value=(route in st.session_state.geselecteerde_routes),
-                            key=f"cb_route_{route}"
-                        )
-                        if checked:
-                            geselecteerde.append(route)
-                    st.session_state.geselecteerde_routes = geselecteerde
-            else:
-                st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
-        except Exception as e:
-            st.error(f"❌ Fout bij ophalen van routes: {e}")
+            types = sorted(df_sidebar["content_type"].dropna().unique())
+            if "selected_types" not in st.session_state:
+                st.session_state.selected_types = []
+            with st.expander("Content types", expanded=True):
+                selected_types = []
+                for t in types:
+                    checked = st.checkbox(
+                        label=t,
+                        value=(t in st.session_state.selected_types),
+                        key=f"cb_type_{t}"
+                    )
+                    if checked:
+                        selected_types.append(t)
+                st.session_state.selected_types = selected_types
+
+            st.markdown("### 🚚 Routeselectie")
+            try:
+                df_routes_full = get_df_routes()
+                if not df_routes_full.empty:
+                    route_counts = df_routes_full["route_omschrijving"].value_counts().to_dict()
+                    beschikbare_routes = sorted(route_counts.items())
+                    label_to_route = {f"{route} ({count})": route for route, count in beschikbare_routes}
+                    with st.expander("Selecteer routes", expanded=True):
+                        geselecteerde = []
+                        for label, route in label_to_route.items():
+                            checked = st.checkbox(
+                                label=label,
+                                value=(route in st.session_state.geselecteerde_routes),
+                                key=f"cb_route_{route}"
+                            )
+                            if checked:
+                                geselecteerde.append(route)
+                        st.session_state.geselecteerde_routes = geselecteerde
+                else:
+                    st.info("📬 Geen routes van vandaag of later beschikbaar. Upload eerst data.")
+            except Exception as e:
+                st.error(f"❌ Fout bij ophalen van routes: {e}")
+
 
     elif rol == "Upload":
         st.markdown("### 📤 Upload bestanden")
