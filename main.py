@@ -236,8 +236,24 @@ with st.sidebar:
             try:
                 st.cache_data.clear()
                 df1 = pd.read_excel(file1)
+                rename_map = {
+                    "Operationele status": "Operational state",
+                    "Containernaam": "Container name",
+                    "Containertype": "Container type",
+                    "Adres": "Address",
+                    "Plaats": "City",
+                    "Locatiecode": "Location code",
+                    "Groep": "Group",
+                    "Inhoudstype": "Content type",
+                    "Vulgraad (%)": "fill level",
+                    "fill level (%)": "fill level",
+                    "Installatietijd": "Install time",
+                    "Container locatie": "Container location",
+                    "Externe groeps-ID": "External group ID",
+                    "Device locatie": "Device location"
+                }
+                df1.rename(columns=rename_map, inplace=True)
                 df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
-                df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
                 df2 = pd.read_excel(file2)
 
                 df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
