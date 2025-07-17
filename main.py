@@ -266,34 +266,39 @@ with st.sidebar:
 
                 # 3) Map Engelse/Nederlandse kolomnamen naar standaard
                 col_map_abel = {
-                    # statusvelden
-                    "operational_state": "operational_state",
+                    # status‐velden
                     "operationele_status": "operational_state",
                     "status": "status",
                     "on_hold": "on_hold",
+
                     # container identificatie
                     "container_uid": "container_uid",
-                    "container_name": "container_name",
-                    "containernaam": "container_name",
-                    # type
-                    "container_type": "container_type",
-                    "containertype": "container_type",
-                    # locatiegegevens
-                    "address": "address",
+                    "containernaam": "container_name",  # NL → uniform
+                    "containertype": "container_type",  # NL → uniform
+
+                    # adresgegevens
                     "adres": "address",
-                    "city": "city",
                     "plaats": "city",
-                    "location_code": "location_code",
                     "locatiecode": "location_code",
+
+                    # grouping / ongebruikt veld (optioneel)
+                    "groep": "group",  # gebruik je 'groep' niet? dan kun je dit weglaten
+
                     # inhoudstype
-                    "content_type": "content_type",
                     "inhoudstype": "content_type",
+
+                    # extra device‐UID
+                    "device_uid": "device_uid",  # sla je op of negeer je verder
+
                     # vulgraad
-                    "fill_level_%": "fill_level",
                     "vulgraad_%": "fill_level",
-                    # locatie coördinaten
-                    "container_location": "container_location",
+
+                    # overige velden (optioneel mappen)
+                    "firmware": "firmware",
+                    "installatietijd": "installatietijd",
                     "container_locatie": "container_location",
+                    "externe_groeps_id": "external_group_id",
+                    "device_locatie": "device_location",
                 }
                 df1.rename(
                     columns={k: v for k, v in col_map_abel.items() if k in df1.columns},
