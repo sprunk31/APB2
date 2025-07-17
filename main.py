@@ -255,6 +255,10 @@ with st.sidebar:
                 df1.rename(columns=rename_map, inplace=True)
                 df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
                 df2 = pd.read_excel(file2)
+                rename_map2 = {
+                    "Route Omschriving": "Route Omschrijving"
+                }
+                df2.rename(columns=rename_map2, inplace=True)
 
                 df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
                 df1 = df1[
