@@ -195,7 +195,7 @@ with st.sidebar:
             st.info("📬 Geen actuele data beschikbaar")
         else:
             st.markdown("### 🔎 Filters")
-            types = sorted(df_sidebar["content_type"].dropna().unique())
+        types = sorted(df_sidebar["content_type"].dropna().unique())
         if "selected_types" not in st.session_state:
             st.session_state.selected_types = []
         with st.expander("Content types", expanded=True):
