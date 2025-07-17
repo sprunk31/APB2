@@ -7,26 +7,6 @@ from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
-import re
-
-# ─── HIER PLAATS JE DE FUNCTIE ───────────────────────────────────────
-def normalize_columns(df):
-    """
-    Zet alle kolomnamen naar lowercase, vervang spaties/streepjes door underscores,
-    verwijder haakjes, en strip whitespace.
-    """
-    cols = (
-        df.columns
-          .astype(str)
-          .str.strip()
-          .str.lower()
-          .str.replace(r"[ \-]+", "_", regex=True)
-          .str.replace(r"[()]", "",     regex=True)
-    )
-    df = df.copy()
-    df.columns = cols
-    return df
-
 
 ## ─── LOGIN ───────────────────────────────────────
 if "authenticated" not in st.session_state:
