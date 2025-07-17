@@ -258,7 +258,7 @@ with st.sidebar:
 
                 df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
                 df1 = df1[
-                    (df1['operational_state'].isin(['in use', 'issue detected'])) &
+                    (df1['operational_state'].isin(['in use', 'in gebruik', 'issue detected'])) &
                     (df1['status'].str.strip().str.lower() == 'in use') &
                     (df1['on_hold'].str.strip().str.lower() == 'no')
                 ].copy()
