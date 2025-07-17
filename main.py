@@ -7,6 +7,25 @@ from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 from geopy.distance import geodesic
 from collections import Counter
 import pydeck as pdk
+import re
+
+# ─── HIER PLAATS JE DE FUNCTIE ───────────────────────────────────────
+def normalize_columns(df):
+    """
+    Zet alle kolomnamen naar lowercase, vervang spaties/streepjes door underscores,
+    verwijder haakjes, en strip whitespace.
+    """
+    cols = (
+        df.columns
+          .astype(str)
+          .str.strip()
+          .str.lower()
+          .str.replace(r"[ \-]+", "_", regex=True)
+          .str.replace(r"[()]", "",     regex=True)
+    )
+    df = df.copy()
+    df.columns = cols
+    return df
 
 
 ## ─── LOGIN ───────────────────────────────────────
@@ -228,8 +247,6 @@ with st.sidebar:
             st.error(f"❌ Fout bij ophalen van routes: {e}")
 
 
-    # ─── UPLOAD SECTIE ────────────────────────────────────────────────────────────
-
     elif rol == "Upload":
 
         st.markdown("### 📤 Upload bestanden")
@@ -244,31 +261,15 @@ with st.sidebar:
 
             try:
 
-                # 1) Cache legen
-
                 st.cache_data.clear()
 
-                # ── 2) Inlezen en kolom-normalisatie voor Abel-bestand ───────────────
+                # 1) Lees en normaliseer Abel-bestand
 
                 df1 = pd.read_excel(file1)
 
-                # 2.1) Kolomnamen uniform maken: lowercase, underscores
+                df1 = normalize_columns(df1)
 
-                df1.columns = (
-
-                    df1.columns
-
-                    .str.strip()
-
-                    .str.lower()
-
-                    .str.replace(" ", "_")
-
-                    .str.replace("-", "_")
-
-                )
-
-                # 2.2) Mappen van NL/EN varianten naar vaste namen
+                # 2) Mappen van NL/EN kolomnamen naar standaard
 
                 col_map_abel = {
 
@@ -296,7 +297,7 @@ with st.sidebar:
 
                     "containertype": "container_type",
 
-                    # locatie
+                    # locatiegegevens
 
                     "address": "address",
 
@@ -310,7 +311,7 @@ with st.sidebar:
 
                     "locatiecode": "location_code",
 
-                    # inhoudstype / fractie
+                    # inhoudstype
 
                     "content_type": "content_type",
 
@@ -318,11 +319,11 @@ with st.sidebar:
 
                     # vulgraad
 
-                    "fill_level_(%)": "fill_level",
+                    "fill_level_%": "fill_level",
 
-                    "vulgraad_(%)": "fill_level",
+                    "vulgraad_%": "fill_level",
 
-                    # overige
+                    # container coords
 
                     "container_location": "container_location",
 
@@ -330,7 +331,7 @@ with st.sidebar:
 
                 }
 
-                # Alleen kolommen renamen die aanwezig zijn
+                # Rename alleen aanwezige kolommen
 
                 df1.rename(
 
@@ -340,9 +341,7 @@ with st.sidebar:
 
                 )
 
-                # ── 3) Filters en berekeningen ───────────────────────────────────────
-
-                # Verwijder onbruikbare containers
+                # 3) Filters en transformaties op df1
 
                 df1 = df1[
 
@@ -354,19 +353,13 @@ with st.sidebar:
 
                     ].copy()
 
-                # Vulgraad numeriek maken
-
                 df1["fill_level"] = pd.to_numeric(df1["fill_level"], errors="coerce")
-
-                # Content type 'Glas' uniformeren
 
                 df1["content_type"] = df1["content_type"].apply(
 
                     lambda x: "Glas" if "glass" in str(x).lower() else x
 
                 )
-
-                # Groepen en gemiddelden
 
                 df1["combinatietelling"] = df1.groupby(
 
@@ -380,25 +373,11 @@ with st.sidebar:
 
                 )["fill_level"].transform("mean")
 
-                # Oproute-vlag op basis van tweede bestand
+                # 4) Lees en normaliseer Pieterbas‑bestand (routes)
 
                 df2 = pd.read_excel(file2)
 
-                # Eerst kolomnamen normaliseren voor routes:
-
-                df2.columns = (
-
-                    df2.columns
-
-                    .str.strip()
-
-                    .str.lower()
-
-                    .str.replace(" ", "_")
-
-                    .str.replace("-", "_")
-
-                )
+                df2 = normalize_columns(df2)
 
                 col_map_routes = {
 
@@ -426,13 +405,13 @@ with st.sidebar:
 
                 df2 = df2[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
 
-                # Flag containers op oproute
+                # Flag oproute en zet extra_meegegeven default False
 
                 df1["oproute"] = df1["container_name"].isin(df2["omschrijving"]).map({True: "Ja", False: "Nee"})
 
                 df1["extra_meegegeven"] = False
 
-                # Kolomvolgorde en datum ingelezen
+                # 5) Kolomvolgorde en datum_ingelezen
 
                 df1 = df1[[
 
@@ -448,11 +427,9 @@ with st.sidebar:
 
                 df1["datum_ingelezen"] = datetime.now().date()
 
-                # ── 4) Wegschrijven naar database ───────────────────────────────────
+                # 6) Wegschrijven naar database
 
                 engine = get_engine()
-
-                # Containers tabel refreshen
 
                 with engine.begin() as conn:
 
@@ -460,24 +437,20 @@ with st.sidebar:
 
                 df1.to_sql("apb_containers", engine, if_exists="append", index=False)
 
-                # Routes tabel refreshen
-
                 with engine.begin() as conn:
 
                     conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
 
                 df2.to_sql("apb_routes", engine, if_exists="append", index=False)
 
-                # Cache vernieuwen en succesmelding
-
                 st.session_state.refresh_needed = True
 
                 st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
 
-
             except Exception as e:
 
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
+
 
 # ─── DASHBOARD (voorheen tab1) ───────────────────────────────
 st.header("📊 Dashboard")
