@@ -254,64 +254,19 @@ with st.sidebar:
 
         if process and file1 and file2:
             try:
-                # 1) Cache legen
                 st.cache_data.clear()
-
-                # ── 2) Lees en normaliseer df1 (Abel) ────────────────────────
                 df1 = pd.read_excel(file1)
-                df1 = normalize_columns(df1)
+                df1.columns = df1.columns.str.strip().str.lower().str.replace(" ", "_")
+                df1.rename(columns={"fill_level_(%)": "fill_level"}, inplace=True)
+                df2 = pd.read_excel(file2)
 
-                # ← DEBUG: toon alle kolommen in df1
-                st.write("🔍 Kolommen in df1 na normalisatie:", list(df1.columns))
-
-                # 3) Map Engelse/Nederlandse kolomnamen naar standaard
-                col_map_abel = {
-                    # status‐velden
-                    "operationele_status": "operational_state",
-                    "status": "status",
-                    "on_hold": "on_hold",
-
-                    # container identificatie
-                    "container_uid": "container_uid",
-                    "containernaam": "container_name",  # NL → uniform
-                    "containertype": "container_type",  # NL → uniform
-
-                    # adresgegevens
-                    "adres": "address",
-                    "plaats": "city",
-                    "locatiecode": "location_code",
-
-                    # grouping / ongebruikt veld (optioneel)
-                    "groep": "group",  # gebruik je 'groep' niet? dan kun je dit weglaten
-
-                    # inhoudstype
-                    "inhoudstype": "content_type",
-
-                    # extra device‐UID
-                    "device_uid": "device_uid",  # sla je op of negeer je verder
-
-                    # vulgraad
-                    "vulgraad_%": "fill_level",
-
-                    # overige velden (optioneel mappen)
-                    "firmware": "firmware",
-                    "installatietijd": "installatietijd",
-                    "container_locatie": "container_location",
-                    "externe_groeps_id": "external_group_id",
-                    "device_locatie": "device_location",
-                }
-                df1.rename(
-                    columns={k: v for k, v in col_map_abel.items() if k in df1.columns},
-                    inplace=True
-                )
-
-                # 4) Filters en transformaties
+                df1['operational_state'] = df1['operational_state'].astype(str).str.strip().str.lower()
                 df1 = df1[
-                    (df1["operational_state"].isin(['in use', 'issue detected'])) &
-                    (df1["status"].str.strip().str.lower() == 'in use') &
-                    (df1["on_hold"].str.strip().str.lower() == 'no')
-                    ].copy()
-                df1["fill_level"] = pd.to_numeric(df1["fill_level"], errors="coerce")
+                    (df1['operational_state'].isin(['in use', 'issue detected'])) &
+                    (df1['status'].str.strip().str.lower() == 'in use') &
+                    (df1['on_hold'].str.strip().str.lower() == 'no')
+                ].copy()
+
                 df1["content_type"] = df1["content_type"].apply(
                     lambda x: "Glas" if "glass" in str(x).lower() else x
                 )
@@ -321,56 +276,33 @@ with st.sidebar:
                 df1["gemiddeldevulgraad"] = df1.groupby(
                     ["location_code", "content_type"]
                 )["fill_level"].transform("mean")
-
-                # ── 5) Lees en normaliseer df2 (routes) ───────────────────────
-                df2 = pd.read_excel(file2)
-                df2 = normalize_columns(df2)
-
-                # ← DEBUG: toon alle kolommen in df2
-                st.write("🔍 Kolommen in df2 na normalisatie:", list(df2.columns))
-
-                col_map_routes = {
-                    "route_omschrijving": "route_omschrijving",
-                    "route_description": "route_omschrijving",
-                    "omschrijving": "omschrijving",
-                    "description": "omschrijving",
-                    "datum": "datum",
-                    "date": "datum",
-                }
-                df2.rename(
-                    columns={k: v for k, v in col_map_routes.items() if k in df2.columns},
-                    inplace=True
-                )
-                df2 = df2[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
-
-                # 6) Flag oproute en zet extra_meegegeven default False
-                df1["oproute"] = df1["container_name"].isin(df2["omschrijving"]) \
-                    .map({True: "Ja", False: "Nee"})
+                df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"]).map({True: "Ja", False: "Nee"})
                 df1["extra_meegegeven"] = False
 
-                # 7) Kolomvolgorde en datum_ingelezen
-                df1 = df1[[
-                    "container_name", "address", "city", "location_code",
-                    "content_type", "fill_level", "container_location",
-                    "combinatietelling", "gemiddeldevulgraad",
-                    "oproute", "extra_meegegeven"
-                ]]
+                cols = [
+                    "container_name", "address", "city", "location_code", "content_type",
+                    "fill_level", "container_location", "combinatietelling",
+                    "gemiddeldevulgraad", "oproute", "extra_meegegeven"
+                ]
+                df1 = df1[cols]
                 df1["datum_ingelezen"] = datetime.now().date()
 
-                # 8) Wegschrijven naar database
                 engine = get_engine()
                 with engine.begin() as conn:
                     conn.execute(text("TRUNCATE TABLE apb_containers RESTART IDENTITY"))
                 df1.to_sql("apb_containers", engine, if_exists="append", index=False)
 
+                df2 = df2.rename(columns={
+                    "Route Omschrijving": "route_omschrijving",
+                    "Omschrijving": "omschrijving",
+                    "Datum": "datum"
+                })[["route_omschrijving", "omschrijving", "datum"]].drop_duplicates()
                 with engine.begin() as conn:
                     conn.execute(text("TRUNCATE TABLE apb_routes RESTART IDENTITY"))
                 df2.to_sql("apb_routes", engine, if_exists="append", index=False)
 
-                # 9) Velden verversen en succesmelding
                 st.session_state.refresh_needed = True
                 st.success("✅ Gegevens succesvol geüpload en cache vernieuwd.")
-
             except Exception as e:
                 st.error(f"❌ Fout bij verwerken van bestanden: {e}")
 
