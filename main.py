@@ -289,17 +289,8 @@ with st.sidebar:
                 df1["oproute"] = df1["container_name"].isin(df2["Omschrijving"]).map({True: "Ja", False: "Nee"})
                 df1["extra_meegegeven"] = False
 
-                df1["inhoud_kuub"] = (
-                        df1["container_type"]
-                        .str.extract(r"([\d\.,]+)")[0]  # pak het eerste match-group
-                        .str.replace(",", ".")  # komma naar punt voor float()
-                        .astype(float) / 1000  # deel door 1000
-                )
-                # maak er een leesbare string van, bijv. “1.2 Kuub”
-                df1["inhoud_kuub"] = df1["inhoud_kuub"].map(lambda x: f"{x:.2f} Kuub")
-
                 cols = [
-                    "container_name", "inhoud_kuub", "address", "city", "location_code", "content_type",
+                    "container_name", "address", "city", "location_code", "content_type",
                     "fill_level", "container_location", "combinatietelling",
                     "gemiddeldevulgraad", "oproute", "extra_meegegeven"
                 ]
@@ -390,7 +381,7 @@ if zoek_fractie:
 bewerkbaar = bewerkbaar.sort_values(["gemiddeldevulgraad", "content_type"], ascending=[False, True])
 
 zichtbaar = [
-    "container_name", "inhoud_kuub", "address", "city", "location_code", "content_type",
+    "container_name", "address", "city", "location_code", "content_type",
     "fill_level", "combinatietelling", "gemiddeldevulgraad", "oproute", "extra_meegegeven"
 ]
 
