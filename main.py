@@ -187,8 +187,15 @@ with st.sidebar:
         df_sidebar = pd.DataFrame()
 
     if rol == "Gebruiker":
-        st.markdown("### 🔎 Filters")
-        types = sorted(df_sidebar["content_type"].dropna().unique())
+        # Controleer of er data van vandaag is
+        vandaag = datetime.now().date()
+        heeft_actueel = (df_sidebar["datum_ingelezen"] == vandaag).any()
+
+        if not heeft_actueel:
+            st.info("📬 Geen actuele data beschikbaar")
+        else:
+            st.markdown("### 🔎 Filters")
+            types = sorted(df_sidebar["content_type"].dropna().unique())
         if "selected_types" not in st.session_state:
             st.session_state.selected_types = []
         with st.expander("Content types", expanded=True):
