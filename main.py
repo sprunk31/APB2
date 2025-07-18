@@ -256,7 +256,7 @@ with st.sidebar:
                     "Groep": "Group",
                     "Inhoudstype": "Content type",
                     "Vulgraad (%)": "Fill Level",
-                    "Fill Level (%)": "Fill Level",
+                    "Fill level (%)": "Fill Level",
                     "Installatietijd": "Install time",
                     "Container locatie": "Container location",
                     "Externe groeps-ID": "External group ID",
